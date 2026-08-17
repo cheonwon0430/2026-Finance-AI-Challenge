@@ -1,0 +1,53 @@
+{
+  "핀샷": {
+    "corp_code": "01836952",
+    "basic_info": {
+      "corp_name": "(주)핀샷 ",
+      "ceo_nm": "박노현",
+      "adres": "서울특별시 마포구 성암로 330 (상암동, DMC첨단산업센터)",
+      "bizr_no": "1128600398",
+      "jurir_no": "1101116014015",
+      "corp_cls": "E",
+      "induty_code": "64999",
+      "est_dt": "20160401",
+      "acc_mt": "12",
+      "hm_url": ""
+    },
+    "electronic_finance_license": {
+      "registered_name": "㈜핀샷",
+      "registration_date": "2019-09-05",
+      "licenses": [
+        "선불전자지급 수단발행업",
+        "전자지급결제 대행업(PG)"
+      ]
+    },
+    "audit_report": {
+      "has_audit_report": true,
+      "audit_report_count": 2,
+      "latest_rcept_no": "20260414002654"
+    },
+    "risk_signals": {
+      "f005_non_submission_count": 0,
+      "nts_business_status": null
+    },
+    "financials": {
+      "revenue": 8259312385,
+      "operating_income": 1780389159,
+      "net_income": -4299849668,
+      "operating_cash_flow": -10017727663,
+      "total_assets": 14686649486,
+      "total_liabilities": 3852586454,
+      "total_equity": 10834063032,
+      "unit": "KRW",
+      "fiscal_periods": [
+        "과               목",
+        "제 10(당) 기말",
+        "제 9(전) 기말"
+      ]
+    },
+    "notes": {
+      "company_overview_and_shareholders": "1. 당사의 개요\n당사는 2016년 3월 28일 IT서비스를 기반으로 한 소액해외송금업을 주 사업목적으로 서울특별시 서대문구 연희로 222-7에서 설립되었으며, 2017년 9월 18일 외국환거래법제 8조및 동법시행령 제 17조의2에 의거하여 금융감독원으로부터 \"소액해외송금업\"의 등록을 인가 받았습니다.보고기간종료일 현재 당사의 대표이사는 박노현이며, 대표이사와 그 특수관계인의 지분율은  100%입니다.",
+      "related_party_transactions": null
+    }
+  }
+}
