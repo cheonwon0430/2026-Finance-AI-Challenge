@@ -1,4 +1,4 @@
-import { apiClient } from "@/shared/api/axios";
+import { apiClient } from "@/shared/api";
 
 export async function healthCheck() {
   try {

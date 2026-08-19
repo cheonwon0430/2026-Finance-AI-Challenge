@@ -1,1 +1,1 @@
-export { HealthPage } from './health'
+export { HealthPage } from "./HealthPage";

@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-import { healthCheck } from "@/domains/system/api";
+import { healthCheck } from "@/features/system/api";
 
 export function HealthPage() {
   const [message, setMessage] = useState("");
