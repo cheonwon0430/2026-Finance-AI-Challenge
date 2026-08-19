@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.domain.company.router import router as company_router
@@ -19,13 +19,24 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# API v1 Root Router
+base_router = APIRouter(
+    prefix="/api/v1",
+)
 
-app.include_router(company_router)
+# Domain Routers
+base_router.include_router(company_router)
+
+# Register API v1
+app.include_router(base_router)
 
 
-@app.get("/")
+
+##########################################################
+# Health Check
+@base_router.get("")
 async def root():
     return {
-        "message": "biz-lantern API",
+        "message": "biz-lantern API is Connected",
         "status": "ok",
     }
