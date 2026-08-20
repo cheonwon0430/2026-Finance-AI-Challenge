@@ -3,6 +3,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.domain.company.model import Company
 from app.domain.company.repository import CompanyRepository
 from app.domain.company.schema import CompanyCreate
+from app.domain.company.api.nts_api import read_business_status
+
+from typing import List
 
 
 class CompanyService:
@@ -25,3 +28,6 @@ class CompanyService:
         company_id: int,
     ) -> Company | None:
         return await self.repository.get_by_id(company_id)
+
+    def get_business_status(self, b_no_list: List) -> object | None:
+        return read_business_status(b_no_list)
