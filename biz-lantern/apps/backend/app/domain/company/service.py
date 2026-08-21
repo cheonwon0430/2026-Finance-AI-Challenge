@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.domain.company.model import Company
 from app.domain.company.repository import CompanyRepository
 from app.domain.company.schema import CompanyCreate
-from app.domain.company.api.nts_lookup import (
+from app.domain.company.api.nts_api import (
     get_business_status as fetch_business_status,
 )
 from app.domain.company.api.kipris_api import get_company_by_company_name

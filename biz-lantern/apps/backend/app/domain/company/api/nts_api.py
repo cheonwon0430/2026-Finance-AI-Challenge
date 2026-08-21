@@ -92,5 +92,5 @@ if __name__ == "__main__":
     import sys
 
     # 진위확인은 한 건당 필드가 3개라 CLI 로 넘기기 번거로워 상태조회만 노출한다
-    # python -m app.domain.company.api.nts_lookup 1234567890 1234567891
+    # python -m app.domain.company.api.nts_api 1234567890 1234567891
     print(get_business_status(sys.argv[1:]))
