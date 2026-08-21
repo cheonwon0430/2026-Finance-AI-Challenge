@@ -1,5 +1,6 @@
 import json
-import requests
+
+import httpx
 import xmltodict
 
 from app.common.config import settings
@@ -23,7 +24,7 @@ def get_company_by_company_name(company: str):
 
     try:
         print(f"{company} 특허/실용 공개·등록공보 정보를 조회 중입니다...\n")
-        response = requests.get(URL, params=params)
+        response = httpx.get(URL, params=params, timeout=30, follow_redirects=True)
         response.raise_for_status()
 
         # XML -> Python dict 변환
@@ -63,7 +64,7 @@ def get_company_by_company_name(company: str):
         #     print(f"    출원일: {app_date}")
         #     print(f"    상태: {status}\n")
 
-    except requests.exceptions.RequestException as e:
+    except httpx.HTTPError as e:
         print(f"API 요청 오류: {e}")
     except Exception as e:
         print(f"데이터 파싱 오류: {e}")

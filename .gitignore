@@ -4,3 +4,8 @@ __pycache__/
 .env
 *.env*
 dump/
+
+biz-lantern/document/작업내용 정리.md
+
+# 테스트 픽스처는 예외. DART 원본 응답을 네트워크 없이 재현하기 위해 커밋한다
+!biz-lantern/apps/backend/tests/fixtures/**
