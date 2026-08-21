@@ -5,7 +5,7 @@ class Settings(BaseSettings):
     database_url: str
     kipris_api_key: str | None = None
     dart_api_key: str
-    nts_service_key: str
+    nts_api_key: str
 
     model_config = SettingsConfigDict(
         env_file=".env",

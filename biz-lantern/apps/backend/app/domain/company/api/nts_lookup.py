@@ -35,7 +35,7 @@ def _params() -> dict[str, str]:
     httpx 가 params 를 다시 인코딩하므로 디코딩된 원본을 넘겨야 이중 인코딩을 피한다.
     이미 디코딩된 키에 unquote() 는 무해하다."""
     return {
-        "serviceKey": unquote(settings.nts_service_key),
+        "serviceKey": unquote(settings.nts_api_key),
         "returnType": "JSON",
     }
 
