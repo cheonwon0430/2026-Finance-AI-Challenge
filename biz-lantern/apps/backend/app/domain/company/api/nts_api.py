@@ -16,6 +16,9 @@ BASE_URL = "https://api.odcloud.kr/api/nts-businessman/v1"
 # 두 엔드포인트 모두 한 번에 최대 100건까지만 받는다
 MAX_BATCH = 100
 
+NTS_VALID_MATCH = "01"  # 진위확인(valid): 사업자번호/대표자/개업일이 국세청 기록과 일치
+NTS_STATUS_ACTIVE = "01"  # 상태조회(status.b_stt_cd): 계속사업자
+
 
 # ---------------------------------------------------------------------------
 # 1. 공통
@@ -86,6 +89,41 @@ def validate_business(businesses: list[dict]) -> str:
     response.raise_for_status()
 
     return json.dumps(response.json(), ensure_ascii=False, indent=2)
+
+
+# ---------------------------------------------------------------------------
+# 3. 판정
+# ---------------------------------------------------------------------------
+def is_operating_business(bizr_no: str, ceo_nm: str, est_dt: str) -> bool:
+    """진위확인 한 번으로 '실존하고 운영 중인 사업자인가'를 판정한다.
+
+    /validate 응답에 status 가 함께 실려 오므로 /status 를 따로 부르지 않는다.
+    """
+    # DART는 공동대표를 "홍길동, 김철수"처럼 쉼표로 합쳐 주지만, 국세청 API는
+    # 대표자를 p_nm(1인)/p_nm2(공동대표 2인째)로 나눠 받으므로 분리해서 넣는다.
+    ceo_names = [name.strip() for name in ceo_nm.split(",") if name.strip()]
+
+    business = {
+        "b_no": bizr_no,
+        "start_dt": est_dt,
+        "p_nm": ceo_names[0],
+    }
+    if len(ceo_names) > 1:
+        business["p_nm2"] = ceo_names[1]
+
+    data = json.loads(validate_business([business]))["data"]
+    if not data:
+        return False
+
+    result = data[0]
+
+    # 1) 진위확인을 먼저 본다: 대표자/개업일이 국세청 기록과 다르면 상태와 무관하게
+    #    "실존 확인 불가"이므로 상태값은 확인할 필요가 없다.
+    if result.get("valid") != NTS_VALID_MATCH:
+        return False
+
+    # 2) 진위확인을 통과한 경우에만 상태조회 값을 본다: 계속사업자(01)여야 "운영 중".
+    return result.get("status", {}).get("b_stt_cd") == NTS_STATUS_ACTIVE
 
 
 if __name__ == "__main__":
