@@ -23,7 +23,7 @@ def get_company_overview(corp_code: str) -> dict:
     return data
 
 
-def is_verified_operating_business(corp_code: str) -> bool:
+def is_verified_opegitrating_business(corp_code: str) -> bool:
     """DART 기업개황에서 bizr_no/ceo_nm/est_dt를 가져와 국세청 진위확인·상태조회로 검증한다."""
     overview = get_company_overview(corp_code)
 
