@@ -1,0 +1,58 @@
+{
+  "트래블월렛": {
+    "corp_code": "01726910",
+    "basic_info": {
+      "corp_name": "주식회사 트래블월렛",
+      "ceo_nm": "김형우",
+      "adres": "서울특별시 강남구 강남대로 542 5,6층 (논현동, 영풍빌딩)",
+      "bizr_no": "6818700800",
+      "jurir_no": "1101116535706",
+      "corp_cls": "E",
+      "induty_code": "65302",
+      "est_dt": "20171013",
+      "acc_mt": "12",
+      "hm_url": "www.travel-wallet.com/"
+    },
+    "electronic_finance_license": {
+      "registered_name": "㈜트래블월렛",
+      "registration_date": "2020-01-03",
+      "licenses": [
+        "선불전자지급 수단발행업",
+        "직불전자지급 수단발행업",
+        "전자지급결제 대행업(PG)"
+      ]
+    },
+    "audit_report": {
+      "has_audit_report": true,
+      "audit_report_count": 4,
+      "latest_rcept_no": "20260331000341"
+    },
+    "risk_signals": {
+      "f005_non_submission_count": 0,
+      "nts_business_status": {
+        "b_stt": "계속사업자",
+        "b_stt_cd": "01",
+        "tax_type": "부가가치세 일반과세자",
+        "end_dt": ""
+      }
+    },
+    "financials": {
+      "revenue": 70638984828,
+      "operating_income": -12310338218,
+      "net_income": -5572946195,
+      "operating_cash_flow": 72971617305,
+      "total_assets": 431250594960,
+      "total_liabilities": 386649013370,
+      "total_equity": 44601581590,
+      "unit": "KRW",
+      "fiscal_periods": [
+        "제 9(당) 기",
+        "제 8(전) 기"
+      ]
+    },
+    "notes": {
+      "company_overview_and_shareholders": "1.  회사의 개요\n주식회사 트래블월렛은 스마트폰 어플리케이션을 통한 외화 환전 및 수령 서비스를 목적으로 2017년 11월 설립되었으며, 이후 소액해외송금업, 선불전자지급수단 발행 및 관리업 등의 라이선스를 취득하여 2021년부터 해외결제 서비스 및 해외송금 서비스를 주요 사업으로 영위하고 있습니다. 당사는 서울특별시 강남구 강남대로 542에 본점을 두고 있습니다.당기말 현재 납입 자본금은 9,329백만원이며 주주현황은 다음과 같습니다.\n주주명\n주식수(주)\n지분율\n비고\n김형우\n224,330\n22.60%\n보통주\n두나무앤파트너스 주식회사\n81,106\n8.17%\n보통주 및 전환우선주\n베이스이스트링창업벤처전문사모투자합자회사\n60,080\n6.05%\n보통주 및 전환우선주\n기타\n627,158\n63.18%\n보통주 및 전환우선주\n합 계\n992,674\n100.00%",
+      "related_party_transactions": "13. 특수관계자와의 거래\n(1) 당기말과 전기말 현재 당사와 특수관계에 있는 회사의 내역은 다음과 같습니다.\n구 분\n당기말\n전기말\n종속기업\nMobile Toong Inc.\nMobile Toong Inc.\nTRAVEL WALLET SG PTE. LTD.\nTRAVEL WALLET SG PTE. LTD.\nTRAVEL WALLET JAPAN CO. LTD.(*)\n-\n(*)\n당기 중 출자하여 신규설립하였습니다.\n(2) 당기 및 전기 중 특수관계자와의 주요 거래 및 이와 관련된 당기말과 전기말 현재의 채권채무 잔액은 다음과 같습니다.\n(단위: 천원)\n특수관계자 명칭\n이자수익\n기타수익\n기타비용\n기타채권\n기타채무\nMobile Toong Inc.\n-\n-\n-\n839,627\n13\nTRAVEL WALLET SG PTE. LTD.\n-\n-\n-\n130\n-\n합 계\n-\n-\n-\n839,757\n13\n(단위: 천원)\n특수관계자 명칭\n이자수익\n기타수익\n기타비용\n기타채권\n기타채무\nMobile Toong Inc.\n-\n83,573\n266\n852,251\n13\nTRAVEL WALLET SG PTE. LTD.\n-\n-\n-\n130\n-\n합 계\n-\n83,573\n266\n852,381\n13\n(3) 당기 및 전기 중 특수관계자와의 자금관련 거래 내역은 다음과 같습니다.\n(단위: 천원)\n특수관계자 명칭\n내역\n당기\n전기\nTRAVEL WALLET SG PTE. LTD.\n현금출자\n13,846\n-\nTRAVEL WALLET JAPAN CO. LTD.\n현금출자\n1,457,607\n8,780"
+    }
+  }
+}
