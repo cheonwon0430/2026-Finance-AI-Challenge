@@ -6,7 +6,7 @@
 
 **Architecture:** Router(`router.py`) → Service(`service.py`, `get_company_overview`) → 두 갈래(`get_company_patents` via `api/kipris_api.py`, `run_company_pipeline` via `api/corp_search.py` + `pipeline.py`). `kipris_api.py`/`pipeline.py`는 수정하지 않고 기존 함수를 그대로 재사용한다.
 
-**Tech Stack:** FastAPI, Pydantic, pytest / pytest-asyncio(monkeypatch 기반 단위 테스트), `uv` (패키지 관리), Starlette path converter(`:int`).
+**Tech Stack:** FastAPI, Pydantic, pytest / pytest-asyncio(monkeypatch 기반 단위 테스트), `uv` (패키지 관리).
 
 ## Global Constraints
 
@@ -14,7 +14,7 @@
 - `app/domain/company/api/kipris_api.py`, `app/domain/company/pipeline.py`는 수정하지 않는다(그대로 재사용).
 - 기존 DI 방식(`Depends(get_db)` → `CompanyService(session)`)을 그대로 유지한다.
 - 모든 신규 함수/메서드에 타입 힌트와 Docstring을 작성하고, 비자명한 이유(WHY)가 있는 지점에는 한글 주석을 추가한다(`pipeline.py`의 주석 스타일을 따른다).
-- 최소 변경 원칙: 기존 엔드포인트(`POST /companies`, `GET /companies/{company_id}`, `GET /companies/{company_id}/status`)의 동작을 바꾸지 않는다.
+- 사용자 결정(2026-08-22): DB의 정수 `company_id`로 조회하는 기존 `GET /companies/{company_id}` 엔드포인트는 더 이상 쓰지 않는다. 이번 작업에서 제거하고 `GET /companies/{company_name}`으로 대체한다. `POST /companies`(생성)와 `GET /companies/{company_id}/status`(휴폐업 조회)는 그대로 유지한다.
 - 최종 응답은 `{"company_name": str, "patents": {...}, "pipeline": {...}}` 형태의 단일 객체다.
 - 에러 처리: 기업명이 존재하지 않으면 404, 동명 다건(corp_code 여러 건 매칭)이면 400+후보목록, KIPRIS/DART 등 외부 API 호출 실패(Timeout 포함)나 파이프라인 치명적 실패는 502. 특허가 0건인 것은 에러가 아니라 정상적인 빈 결과다.
 
@@ -25,14 +25,15 @@
 | 파일 | 변경 | 책임 |
 |---|---|---|
 | `app/domain/company/exceptions.py` | 신규 | Service가 올리는 도메인 예외 3종 |
-| `app/domain/company/service.py` | 수정 | `get_company_patents`, `run_company_pipeline`, `get_company_overview` 추가 |
-| `app/domain/company/schema.py` | 수정 | `CompanyOverviewResponse` 추가 |
-| `app/domain/company/router.py` | 수정 | `GET /{company_name}` 추가, `GET /{company_id}` → `GET /{company_id:int}` (라우팅 충돌 방지) |
+| `app/domain/company/service.py` | 수정 | `get_company_patents`, `run_company_pipeline`, `get_company_overview` 추가, 더 이상 쓰지 않는 `get_company(company_id)` 제거 |
+| `app/domain/company/repository.py` | 수정 | `get_company` 제거로 더는 쓰이지 않는 `get_by_id` 제거 |
+| `app/domain/company/schema.py` | 수정 | `CompanyOverviewResponse` 추가 (`CompanyResponse`는 `POST /companies`가 계속 쓰므로 유지) |
+| `app/domain/company/router.py` | 수정 | `GET /{company_id}` 제거, `GET /{company_name}` 추가 |
 | `tests/test_company_exceptions.py` | 신규 | 예외 클래스 동작 테스트 |
 | `tests/test_company_service.py` | 신규 | Service 신규 메서드 3종 테스트 |
 | `tests/test_company_router.py` | 신규 | 엔드포인트 통합 테스트(에러 매핑 포함) |
 
-**라우팅 충돌에 대한 참고:** Starlette은 `{company_id}` 처럼 타입 지정이 없는 경로 파라미터를 "임의의 한 세그먼트 문자열"에 매칭시키고(정수 검증은 매칭 이후 Pydantic이 함), 등록 순서상 먼저 오는 라우트가 우선한다. 기존 `GET /{company_id}`가 이미 첫 번째로 등록돼 있어서, 그대로 두고 `GET /{company_name}`을 뒤에 추가하면 `"트래블월렛"` 같은 문자열 경로도 전부 `/{company_id}` 라우트에 먼저 매칭되어 422로 끝나버리고 새 엔드포인트에 도달하지 못한다. `/{company_id:int}`로 바꾸면 숫자 세그먼트만 그 라우트에 매칭되고, 숫자가 아닌 세그먼트는 다음 라우트(`/{company_name}`)로 넘어간다. 기존 정상 사용(정수 id 조회)에는 영향이 없다.
+**참고 - 라우팅 충돌이 사라짐:** 원래 설계에서는 기존 `GET /{company_id}`(타입 지정 없이 등록돼 있어 임의의 문자열 세그먼트에도 매칭됨)와 신규 `GET /{company_name}`이 같은 경로 모양이라 충돌 위험이 있었고, `/{company_id:int}`로 바꿔 회피할 계획이었다. 사용자가 `GET /{company_id}` 자체를 제거하기로 결정하면서 이 문제는 더 이상 발생하지 않는다 - 단일 세그먼트 GET 라우트가 `/{company_name}` 하나만 남는다.
 
 ---
 
@@ -719,15 +720,17 @@ git commit -m "feat(company): add CompanyService.get_company_overview and respon
 
 ---
 
-### Task 5: Router - `GET /{company_name}` 엔드포인트
+### Task 5: Router - 기존 `GET /{company_id}` 제거 + `GET /{company_name}` 엔드포인트 추가
 
 **Files:**
-- Modify: `app/domain/company/router.py`
+- Modify: `app/domain/company/router.py` (`GET /{company_id}` 제거, `GET /{company_name}` 추가)
+- Modify: `app/domain/company/service.py` (더 이상 쓰지 않는 `get_company(company_id)` 제거)
+- Modify: `app/domain/company/repository.py` (더 이상 쓰지 않는 `get_by_id` 제거)
 - Test: `tests/test_company_router.py` (신규)
 
 **Interfaces:**
 - Consumes: `CompanyService.get_company_overview`(Task 4), `CompanyOverviewResponse`(Task 4), `CompanyNotFoundError`/`AmbiguousCompanyNameError`/`ExternalAPIError`(Task 1).
-- Produces: `GET /api/v1/companies/{company_name}` — 200 시 `CompanyOverviewResponse` JSON, 404/400/502 에러 매핑.
+- Produces: `GET /api/v1/companies/{company_name}` — 200 시 `CompanyOverviewResponse` JSON, 404/400/502 에러 매핑. `CompanyService.get_company`/`CompanyRepository.get_by_id`는 더 이상 존재하지 않는다.
 
 - [ ] **Step 1: 실패하는 테스트 작성**
 
@@ -836,27 +839,60 @@ def test_get_company_overview_는_외부_api_실패시_502(monkeypatch):
     assert response.status_code == 502
 
 
-def test_기존_company_id_라우트는_영향받지_않는다(monkeypatch):
-    async def fake_get_company(self, company_id):
-        return None
+def test_company_id_라우트는_더_이상_없고_숫자도_company_name으로_처리된다(monkeypatch):
+    """GET /{company_id} 를 제거했으므로, 숫자로만 된 경로도 이제
+
+    get_company_overview(company_name="999999") 로 들어간다(기존처럼 DB
+    company_id 조회로 취급되지 않는다). 라우트가 실제로 지워졌는지 확인한다.
+    """
+
+    async def fake_get_company_overview(self, company_name):
+        assert company_name == "999999"
+        return {"company_name": company_name, "patents": {"count": 0, "items": []}, "pipeline": {}}
 
     monkeypatch.setattr(
         company_service_module.CompanyService,
-        "get_company",
-        fake_get_company,
+        "get_company_overview",
+        fake_get_company_overview,
     )
 
     response = client.get("/api/v1/companies/999999")
 
-    assert response.status_code == 404
+    assert response.status_code == 200
+    assert response.json()["company_name"] == "999999"
 ```
 
 - [ ] **Step 2: 테스트 실행해서 실패 확인**
 
 Run: `uv run pytest tests/test_company_router.py -v`
-Expected: FAIL — `404 Not Found`(새 엔드포인트가 아직 없음) 및/또는 마지막 테스트는 라우팅 충돌로 `422` 등, 여러 테스트가 실패해야 정상이다.
+Expected: FAIL — 새 엔드포인트가 아직 없어 `404 Not Found`. 마지막 테스트는 기존 `GET /{company_id}` 가 아직 남아있어 `company_id: int` 파싱은 성공하지만 `get_company_overview` 가 호출되지 않아 실패한다.
 
 - [ ] **Step 3: 최소 구현 작성**
+
+`service.py` 에서 `get_company` 메서드를 제거한다(더 이상 쓰이지 않음):
+
+```python
+    async def get_company(
+        self,
+        company_id: int,
+    ) -> Company | None:
+        return await self.repository.get_by_id(company_id)
+```
+
+위 메서드 전체를 삭제한다. `Company` import는 여전히 `create_company`에서 타입 힌트로 쓰이므로 그대로 둔다.
+
+`repository.py` 에서 `get_by_id` 메서드를 제거한다(더 이상 쓰이지 않음):
+
+```python
+    async def get_by_id(self, company_id: int) -> Company | None:
+        result = await self.session.execute(
+            select(Company).where(Company.id == company_id)
+        )
+
+        return result.scalar_one_or_none()
+```
+
+위 메서드 전체를 삭제한다. `select` import가 `create`에서도 쓰이는지 확인한다 - 쓰이지 않으면 import 도 함께 지운다(`create`는 `session.add`/`flush`/`refresh`만 쓰므로 `select` import는 삭제 대상이다).
 
 `router.py` 상단 import 줄을 바꾼다:
 
@@ -881,17 +917,28 @@ from app.domain.company.exceptions import (
 from app.infrastructure.database.session import get_db
 ```
 
-기존 `GET /{company_id}` 라우트의 경로를 `/{company_id:int}` 로 바꾼다(라우팅 충돌 방지, 사유는 위 "파일 구조" 절 참고):
+기존 `GET /{company_id}` 엔드포인트 전체를 삭제한다:
 
 ```python
 @router.get(
-    "/{company_id:int}",
+    "/{company_id}",
     response_model=CompanyResponse,
 )
 async def get_company(
     company_id: int,
     session: AsyncSession = Depends(get_db),
 ):
+    service = CompanyService(session)
+
+    company = await service.get_company(company_id)
+
+    if company is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Company not found",
+        )
+
+    return company
 ```
 
 파일 끝(`get_company_status` 뒤)에 새 엔드포인트를 추가한다:
@@ -935,8 +982,8 @@ Expected: 기존 `tests/test_document_clean.py` 포함 전부 PASS
 - [ ] **Step 5: 커밋**
 
 ```bash
-git add app/domain/company/router.py tests/test_company_router.py
-git commit -m "feat(company): add GET /companies/{company_name} overview endpoint"
+git add app/domain/company/router.py app/domain/company/service.py app/domain/company/repository.py tests/test_company_router.py
+git commit -m "feat(company): replace GET /companies/{company_id} with GET /companies/{company_name} overview endpoint"
 ```
 
 ---
@@ -991,12 +1038,12 @@ curl -i "http://127.0.0.1:8000/api/v1/companies/삼성"
 ```
 Expected: `400`, body 의 `detail.candidates` 에 후보 목록.
 
-기존 숫자 id 라우트가 여전히 동작하는지(회귀 확인):
+`GET /companies/{company_id}` 가 실제로 제거됐는지 확인(숫자를 넣어도 이제는 기업명으로 취급됨):
 
 ```bash
 curl -i "http://127.0.0.1:8000/api/v1/companies/1"
 ```
-Expected: DB 에 id=1 인 company 가 있으면 `200`, 없으면 `404`(라우팅 충돌 없이 기존 로직대로 동작).
+Expected: DB id 조회가 아니라 `company_name="1"` 로 특허/파이프라인 조회가 시도된다. DART 에 매칭되는 기업이 없을 테니 보통 `404`.
 
 - [ ] **Step 5: 자동화 테스트 스위트 전체 재확인**
 
@@ -1009,6 +1056,6 @@ Expected: 전부 PASS. (Task 1~5 에서 만든 테스트 + 기존 `test_document
 
 ## Self-Review 결과
 
-- **스펙 커버리지**: 특허 조회(Task 2), 특허별 행정이력(Task 2), Pipeline 실행(Task 3), Router 엔드포인트(Task 5), 응답 구조 `{company_name, patents, pipeline}`(Task 4/5), 계층 제약(Router는 Service만 호출 - Task 5), 에러 처리 5종(기업명 없음/특허없음/KIPRIS 실패/Pipeline 실패/Timeout - Task 1,2,3,5), DI 유지(Task 5), 타입힌트+Docstring+주석(전 Task), 최소 변경(라우팅 충돌 수정 1줄 제외 전부 additive) 모두 특정 Task에 매핑됨. 사용자 추가 요청인 "주석 추가"와 "FastAPI 실행/테스트 방법"은 각각 전 Task의 코드 주석과 Task 6에서 다룸.
+- **스펙 커버리지**: 특허 조회(Task 2), 특허별 행정이력(Task 2), Pipeline 실행(Task 3), Router 엔드포인트(Task 5), 응답 구조 `{company_name, patents, pipeline}`(Task 4/5), 계층 제약(Router는 Service만 호출 - Task 5), 에러 처리 5종(기업명 없음/특허없음/KIPRIS 실패/Pipeline 실패/Timeout - Task 1,2,3,5), DI 유지(Task 5), 타입힌트+Docstring+주석(전 Task) 모두 특정 Task에 매핑됨. 사용자 추가 요청인 "주석 추가"와 "FastAPI 실행/테스트 방법"은 각각 전 Task의 코드 주석과 Task 6에서 다룸. 사용자가 2026-08-22 대화에서 `GET /companies/{company_id}` 를 더 이상 쓰지 않기로 결정해 Task 5 에서 해당 엔드포인트와 이제 쓰이지 않는 `CompanyService.get_company`/`CompanyRepository.get_by_id`를 함께 제거하도록 반영함(원래 계획의 `/{company_id:int}` 라우팅 충돌 회피안은 대체됨).
 - **플레이스홀더 스캔**: 없음. 모든 Step 에 실제 코드/명령어 포함.
 - **타입/이름 일관성**: `get_company_patents`, `run_company_pipeline`, `get_company_overview`, `_parse_patent_items`, `_parse_history_items`, `_fetch_administrative_history`, `CompanyNotFoundError`, `AmbiguousCompanyNameError(company_name, candidates)`, `ExternalAPIError`, `CompanyOverviewResponse` — Task 전체에서 동일한 이름/시그니처로 사용됨을 확인.
