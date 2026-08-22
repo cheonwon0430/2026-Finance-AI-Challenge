@@ -4,6 +4,7 @@ kipris_api / corp_search / pipeline 의 실제 네트워크 호출은 전부 mon
 대체한다. CompanyService 는 이 테스트 범위의 메서드들에서 DB 세션을 쓰지 않으므로
 session 자리에는 None 을 넘긴다.
 """
+import asyncio
 import json
 
 import pytest
@@ -271,3 +272,23 @@ async def test_get_company_overview_는_특허와_파이프라인_결과를_합�
         "patents": {"count": 0, "items": []},
         "pipeline": {"corp_code": "01836952"},
     }
+
+
+@pytest.mark.asyncio
+async def test_get_company_overview_는_전체_시간초과시_ExternalAPIError를_올린다(monkeypatch):
+    monkeypatch.setattr("app.domain.company.service.OVERVIEW_TIMEOUT_SECONDS", 0.01)
+
+    async def fake_get_company_patents(self, company_name):
+        await asyncio.sleep(1)
+        return {"count": 0, "items": []}
+
+    async def fake_run_company_pipeline(self, company_name):
+        return {"corp_code": "01836952"}
+
+    monkeypatch.setattr(CompanyService, "get_company_patents", fake_get_company_patents)
+    monkeypatch.setattr(CompanyService, "run_company_pipeline", fake_run_company_pipeline)
+
+    service = CompanyService(None)
+
+    with pytest.raises(ExternalAPIError):
+        await service.get_company_overview("핀샷")

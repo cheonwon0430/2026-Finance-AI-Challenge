@@ -24,6 +24,12 @@ from app.domain.company.exceptions import (
 
 logger = logging.getLogger(__name__)
 
+# KIPRIS 는 특허 검색 1회 + 특허마다 행정이력 1회(최대 10건 페이지 크기)로 최대 11회,
+# collect() 는 DART/국세청을 5단계에 걸쳐 순차 호출한다. 각 외부 호출 자체에도 타임아웃이
+# 있지만, 요청 전체가 지나치게 오래 걸리는 경우(외부 API가 매번 타임아웃 직전까지 느리게
+# 응답하는 등)에도 이 요청 하나가 무한정 이벤트 루프를 붙들지 않도록 전체 상한을 둔다.
+OVERVIEW_TIMEOUT_SECONDS = 600
+
 
 class CompanyService:
     def __init__(self, session: AsyncSession):
@@ -206,9 +212,17 @@ class CompanyService:
             CompanyNotFoundError, AmbiguousCompanyNameError, ExternalAPIError:
                 get_company_patents / run_company_pipeline 가 올리는 예외를
                 그대로 전파한다.
+            ExternalAPIError: 위 예외들과 별개로, 전체 처리가
+                OVERVIEW_TIMEOUT_SECONDS 를 넘었을 때도 올라온다.
         """
-        patents = await self.get_company_patents(company_name)
-        pipeline_result = await self.run_company_pipeline(company_name)
+        try:
+            async with asyncio.timeout(OVERVIEW_TIMEOUT_SECONDS):
+                patents = await self.get_company_patents(company_name)
+                pipeline_result = await self.run_company_pipeline(company_name)
+        except TimeoutError as error:
+            raise ExternalAPIError(
+                f"전체 조회 시간 초과({OVERVIEW_TIMEOUT_SECONDS}초): company_name={company_name}"
+            ) from error
 
         return {
             "company_name": company_name,
