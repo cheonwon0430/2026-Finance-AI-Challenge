@@ -1,11 +1,14 @@
 """document_clean 파서 테스트. 네트워크를 타지 않는다."""
+import re
+
 import pytest
 
 from app.domain.company.api.dart_document import escape_bare_tags
 from app.domain.company.parser.document_clean import (
     clean_document,
+    normalize_parse_key,
     parse_amount,
-    render_text,
+    render_markdown,
 )
 
 
@@ -133,11 +136,91 @@ def test_ACODE_ALEVEL_ADELIM_이_보존된다():
     assert accounts[1]["level"] == 2
 
 
-def test_소계와_세부항목이_서로_다른_delim_에_들어간다():
-    # 이걸 구분하지 못하면 어느 기(期)의 값인지 알 수 없다
+def test_소계와_세부항목이_서로_다른_열에_들어간다():
+    # 빈 칸을 압축해 버리면 소계와 세부항목이 같은 열에 있는 것처럼 보인다
     accounts = _tables(clean_document(COLSPAN_TABLE))[0]["accounts"]
-    assert [v["delim"] for v in accounts[0]["values"]] == [2, 4]   # 소계
-    assert [v["delim"] for v in accounts[1]["values"]] == [1, 3]   # 세부항목
+    assert [v["col"] for v in accounts[0]["values"]] == [2, 4]   # 소계
+    assert [v["col"] for v in accounts[1]["values"]] == [1, 3]   # 세부항목
+
+
+def test_값마다_물리_열과_그_열의_헤더가_붙는다():
+    # '어느 기(期)인가' 는 헤더 문자열로 답한다. delim 을 해석해서 맞히지 않는다.
+    accounts = _tables(clean_document(COLSPAN_TABLE))[0]["accounts"]
+    assert [(v["col"], v["header"]) for v in accounts[1]["values"]] == [
+        (1, "제 11(당) 기"),
+        (3, "제 10(전) 기"),
+    ]
+
+
+# 자본변동표는 ADELIM 이 물리 열과 어긋난다. 실제 감사보고서에서 뽑은 구조다.
+EQUITY_TABLE = _wrap("""
+<TABLE ACLASS="FINANCE">
+  <THEAD>
+    <TR><TH>과 목</TH><TH>자 본 금</TH><TH>이 익잉여금</TH><TH>총 계</TH></TR>
+  </THEAD>
+  <TBODY>
+    <TR><TE ADELIM="0">2024.01.01 (전기초)</TE>
+        <TE ADELIM="1">4,000,000,000</TE>
+        <TE ADELIM="5">10,213,564,720</TE>
+        <TE ADELIM="6">14,213,564,720</TE></TR>
+  </TBODY>
+</TABLE>
+""")
+
+
+def test_ADELIM_은_물리_열_번호가_아니다():
+    # 자본변동표는 4열인데 ADELIM 이 0/1/5/6 으로 온다. 'delim 1·2 는 당기' 같은
+    # 규칙을 세우면 이 표를 조용히 오독한다. 그래서 col 을 따로 들고 있는다.
+    values = _tables(clean_document(EQUITY_TABLE))[0]["accounts"][0]["values"]
+    assert [v["delim"] for v in values] == [1, 5, 6]
+    assert [v["col"] for v in values] == [1, 2, 3]
+    # '이 익잉여금' 은 DART 가 낸 그대로다. 앞 한 글자만 떼어놓은 표기라 자간 정리가
+    # 손대지 않는다 - '그 중요한' 같은 정상 어절까지 붙여버릴 위험이 더 크기 때문이다.
+    assert [v["header"] for v in values] == ["자본금", "이 익잉여금", "총계"]
+
+
+def test_헤더가_없으면_열_헤더는_None_이다():
+    clean = clean_document(_wrap(
+        '<TABLE ACLASS="FINANCE"><TBODY><TR>'
+        '<TE ADELIM="0">자본금</TE><TE ADELIM="1">100</TE>'
+        "</TR></TBODY></TABLE>"
+    ))
+    assert _tables(clean)[0]["accounts"][0]["values"][0]["header"] is None
+
+
+# ---------------------------------------------------------------------------
+# 매칭용 key - 표시용 문자열과 분리한다
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize(
+    "raw_text",
+    [
+        "부 채 및 자 본 총 계",
+        "부  채  및  자  본  총  계",
+        "부채 및 자본 총계",
+        "부채및자본총계",
+    ],
+)
+def test_공백_표기가_달라도_같은_key_가_된다(raw_text):
+    # DART 는 같은 계정과목을 문서마다 다른 간격으로 준다. 어느 쪽이 와도 하나로 모인다.
+    assert normalize_parse_key(raw_text) == "부채및자본총계"
+
+
+def test_양쪽을_모두_normalize_해야_비교가_된다():
+    assert normalize_parse_key("부  채  및  자  본  총  계") == normalize_parse_key("부채 및 자본 총계")
+
+
+def test_계정과목에_표시용_라벨과_매칭용_key_가_함께_붙는다():
+    account = _tables(clean_document(SPACED_TABLE))[0]["accounts"][0]
+    assert account["label"] == "자산총계"          # 사람·LLM 이 읽는 쪽
+    assert account["key"] == "자산총계"            # 룰베이스가 찾는 쪽
+
+
+def test_자간_정리를_꺼도_key_는_공백이_없다():
+    # 표시용은 원문을 지키더라도 매칭은 되어야 한다
+    account = clean_document(SPACED_TABLE, normalize=False)[
+        "sections"][0]["blocks"][0]["accounts"][0]
+    assert account["label"] == "자      산      총      계"
+    assert account["key"] == "자산총계"
 
 
 def test_금액_원문이_한_글자도_변하지_않는다():
@@ -231,25 +314,111 @@ def test_문서_머리말과_요약을_뽑는다():
 
 
 # ---------------------------------------------------------------------------
-# 렌더링
+# 마크다운 렌더링
 # ---------------------------------------------------------------------------
-def test_섹션_배너를_낸다():
-    text = render_text(clean_document(_wrap("<TITLE>감   사   보   고   서</TITLE><P>본문</P>")))
-    assert "===== 감사보고서 =====" in text
-    assert "본문" in text
+_MD_SEPARATOR = re.compile(r"^\|(?:\s*-+\s*\|)+$")
+_MD_UNESCAPED_PIPE = re.compile(r"(?<!\\)\|")
 
 
-def test_ROWSPAN_으로_복제된_칸은_렌더링에서_비운다():
+def _md_rows(markdown: str) -> list[list[str]]:
+    """마크다운에서 표 행만 뽑아 칸 목록으로 돌려준다.
+
+    구분선만 버린다. 헤더가 없는 표는 빈 헤더 행으로 열리는데 그것도 한 행으로
+    센다(항상 rows[0] 이 헤더). 이스케이프된 파이프에서는 칸을 나누지 않는다.
+    """
+    rows = []
+    for line in markdown.splitlines():
+        if not line.startswith("|") or _MD_SEPARATOR.match(line):
+            continue
+        rows.append([cell.strip() for cell in _MD_UNESCAPED_PIPE.split(line.strip("|"))])
+
+    return rows
+
+
+def test_섹션_제목을_h2_로_낸다():
+    md = render_markdown(clean_document(_wrap("<TITLE>감   사   보   고   서</TITLE><P>본문</P>")))
+    assert "## 감사보고서" in md
+    assert "본문" in md
+
+
+def test_모든_행의_칸_수가_같다():
+    # 마크다운 표는 칸 수가 어긋나면 그 행 전체가 밀린다
+    md = render_markdown(clean_document(COLSPAN_TABLE))
+    assert {len(row) for row in _md_rows(md)} == {5}   # 과목 + 기(期)당 2칸
+
+
+def test_ROWSPAN_으로_내려온_값은_각_행에_남긴다():
+    # 세로로 복제된 값은 그 행의 묶음 이름이다. 행 하나만 떼어 읽어도 뜻이 통해야 한다.
     clean = clean_document(_wrap(
         "<TABLE><TBODY>"
         '<TR><TD ROWSPAN="2">구분</TD><TD>1행</TD></TR>'
         "<TR><TD>2행</TD></TR>"
         "</TBODY></TABLE>"
     ))
-    lines = [ln for ln in render_text(clean).splitlines() if ln.strip()]
-    assert lines[0].startswith("구분")
-    assert "구분" not in lines[1]   # 같은 값이 반복되지 않는다
-    assert "2행" in lines[1]
+    assert _md_rows(render_markdown(clean))[1:] == [["구분", "1행"], ["구분", "2행"]]
+
+
+def test_COLSPAN_으로_늘어난_칸은_렌더링에서_비운다():
+    # 가로 복제는 원래 한 칸을 늘린 것이라, 그대로 두면 같은 값이 한 행에 두 번 찍힌다
+    clean = clean_document(_wrap(
+        '<TABLE><TBODY><TR><TD COLSPAN="2">2025년 12월 31일 현재</TD><TD>비고</TD></TR></TBODY></TABLE>'
+    ))
+    assert _md_rows(render_markdown(clean))[1:] == [["2025년 12월 31일 현재", "", "비고"]]
+
+
+def test_칸_안의_파이프와_개행을_이스케이프한다():
+    # 한 건만 섞여도 그 행의 열이 통째로 밀린다
+    clean = clean_document(_wrap("<TABLE><TBODY><TR><TD>가|나</TD><TD>다</TD></TR></TBODY></TABLE>"))
+    md = render_markdown(clean)
+    assert r"가\|나" in md
+    assert {len(row) for row in _md_rows(md)} == {2}
+
+
+def test_한_열짜리_표는_표로_그리지_않는다():
+    # 문서당 10여 개가 레이아웃용 껍데기다. 파이프를 둘러봐야 잡음만 는다.
+    clean = clean_document(_wrap("<TABLE><TBODY><TR><TD>표지 문구</TD></TR></TBODY></TABLE>"))
+    md = render_markdown(clean)
+    assert "표지 문구" in md
+    assert "|" not in md
+
+
+def test_재무제표는_기별_두_칸을_그대로_둔다():
+    # 두 칸은 계층을 인코딩한다. 실측상 level 0 은 100/100 바깥 칸, level 2 는
+    # 294/294 안쪽 칸이다. 합치면 소계와 그 구성요소가 같은 열에 놓여 읽는 쪽이
+    # 중복 합산할 수 있고, ALEVEL 로는 복원되지 않는다(level 1 이 170/22 로 갈린다).
+    rows = _md_rows(render_markdown(clean_document(COLSPAN_TABLE)))
+    assert rows[0] == ["과목", "제 11(당) 기", "제 11(당) 기", "제 10(전) 기", "제 10(전) 기"]
+    assert rows[1] == ["I. 유동자산", "", "24,087,860,030", "", "13,574,392,766"]
+    assert rows[2] == ["현금및현금성자산", "16,525,890,663", "", "3,806,711,356", ""]
+
+
+def test_금액은_하나도_잃지_않는다():
+    md = render_markdown(clean_document(COLSPAN_TABLE))
+    for raw in ("24,087,860,030", "13,574,392,766", "16,525,890,663", "3,806,711,356"):
+        assert raw in md
+
+
+def test_헤더가_같아도_열을_합치지_않는다():
+    # 합치면 서로 다른 값이 뭉개진다. 표 종류를 가리지 않고 그대로 둔다.
+    clean = clean_document(_wrap(
+        "<TABLE>"
+        '<THEAD><TR><TH>구분</TH><TH COLSPAN="2">당기</TH></TR></THEAD>'
+        "<TBODY><TR><TD>매출</TD><TD>100</TD><TD>200</TD></TR></TBODY>"
+        "</TABLE>"
+    ))
+    rows = _md_rows(render_markdown(clean))
+    assert rows[0] == ["구분", "당기", "당기"]
+    assert rows[1] == ["매출", "100", "200"]   # 100 과 200 이 뭉개지지 않는다
+
+
+def test_여러_줄_헤더는_한_줄로_평탄화된다():
+    clean = clean_document(_wrap(
+        "<TABLE><THEAD>"
+        '<TR><TH>구분</TH><TH COLSPAN="2">제11기</TH></TR>'
+        "<TR><TH></TH><TH>유동</TH><TH>비유동</TH></TR>"
+        "</THEAD><TBODY><TR><TD>자산</TD><TD>1</TD><TD>2</TD></TR></TBODY></TABLE>"
+    ))
+    assert _md_rows(render_markdown(clean))[0] == ["구분", "제11기 유동", "제11기 비유동"]
 
 
 # ---------------------------------------------------------------------------
@@ -266,9 +435,10 @@ def test_ROWSPAN_으로_복제된_칸은_렌더링에서_비운다():
         ("Ⅰ. 영 업 수 익", "Ⅰ. 영업수익"),
     ],
 )
-def test_자간을_벌린_글자는_붙인다(raw_text, expected):
-    clean = clean_document(_wrap(f"<P>{raw_text}</P>"))
-    assert clean["sections"][0]["blocks"][0]["text"] == expected
+def test_자간을_벌린_이름은_붙인다(raw_text, expected):
+    # 제목·계정과목처럼 '이름' 인 문자열에만 적용한다. 본문 문단은 대상이 아니다.
+    clean = clean_document(_wrap(f"<TITLE>{raw_text}</TITLE>"))
+    assert clean["sections"][0]["title"] == expected
 
 
 @pytest.mark.parametrize(
@@ -282,9 +452,17 @@ def test_자간을_벌린_글자는_붙인다(raw_text, expected):
         "(1) 당좌자산",
     ],
 )
-def test_본문과_기수_표기는_건드리지_않는다(raw_text):
-    clean = clean_document(_wrap(f"<P>{raw_text}</P>"))
-    assert clean["sections"][0]["blocks"][0]["text"] == raw_text
+def test_기수_표기와_어절은_이름_자리에서도_건드리지_않는다(raw_text):
+    clean = clean_document(_wrap(f"<TITLE>{raw_text}</TITLE>"))
+    assert clean["sections"][0]["title"] == raw_text
+
+
+def test_본문_문단은_자간을_붙이지_않는다():
+    # 본문까지 붙이면 '그 중 한 곳' 이 '그중한곳' 이 된다. 표시용과 매칭용을
+    # 나눠 둔 이유가 이것이고, 매칭은 normalize_parse_key 가 따로 맡는다.
+    clean = clean_document(_wrap("<P>그 중 한 곳</P><P>한   미   회   계   법   인</P>"))
+    texts = [b["text"] for b in clean["sections"][0]["blocks"]]
+    assert texts == ["그 중 한 곳", "한 미 회 계 법 인"]
 
 
 def test_연속_공백과_개행은_한_칸으로_줄인다():

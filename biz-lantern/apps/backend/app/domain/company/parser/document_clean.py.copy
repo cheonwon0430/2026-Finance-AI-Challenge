@@ -31,50 +31,21 @@ xmltodict 는 동명 태그를 배열로 묶어버려서 P 와 TABLE 이 번갈�
     [4] 재무제표 표   TE 의 ACODE/ALEVEL/ADELIM 을 살린다
     [5] 본문 순회    XML -> 정리된 dict
     [6] 자간 정리    DART 가 자간 대신 넣은 공백을 다듬는다 (끌 수 있다)
-    [7] 렌더링      정리된 dict -> 마크다운
+    [7] 렌더링      정리된 dict -> 읽기 좋은 텍스트
     [8] CLI
-
-왜 마크다운인가 (2026-08-22 실측, 감사보고서 4건)
-
-    이 결과물은 LLM 입력으로 들어간다. 고정폭 정렬 텍스트는 두 가지가 깨진다.
-      1) 폭 계산이 len() 이라 2셀짜리 한글에서 정렬이 애초에 맞지 않는다.
-      2) 더 중요한 건 열 모호성이다. 재무제표는 소계와 세부 금액을 서로 다른
-         열에 넣는데, 평문에서는 그 둘이 같은 열처럼 보인다.
-
-             Ⅰ. 유동자산                       11,010,943,287   <- 물리 2열(소계)
-             1. 현금및현금성자산(주석3,9)  2,061,103,156         <- 물리 1열(세부)
-
-    마크다운 파이프 표는 빈 칸을 명시하므로 이 모호성이 사라진다. 그리고
-    ljust 패딩이 파이프보다 비싸서 결과가 오히려 작다. 즉 명확성과 토큰 비용이
-    같은 방향이다.
-
-    기(期)마다 두 칸이 반복되는 헤더는 합치지 않는다 (2026-08-22 판단)
-
-        '제 10(당) 기말' 이 두 번 나오는 게 보기 싫어 두 열을 하나로 합쳤다가
-        되돌렸다. 그 두 칸이 계층을 인코딩하고 있어서, 합치면 소계와 그 구성요소가
-        같은 열에 놓여 읽는 쪽이 중복 합산할 수 있다.
-
-            level 0 (Ⅰ.유동자산)  -> 바깥 칸 100 / 안쪽 칸   0
-            level 1 ((1)당좌자산)  -> 바깥 칸  22 / 안쪽 칸 170
-            level 2 (1.현금및…)    -> 바깥 칸   0 / 안쪽 칸 294
-
-        ALEVEL 로는 복원되지 않는다(level 1 이 갈린다). 두 칸에 '세부'/'소계'
-        이름을 붙이는 안도 폐기했다 - 현금흐름표에서는 부모(소계)와 자식(세목)이
-        같은 칸에 들어가므로 그 이름이 틀린다. 바깥 칸의 정확한 의미는
-        'level 0 대분류 총계' 이고 안쪽 칸은 '나머지 전부' 다.
 
 사용법:
     python -m app.domain.company.parser.document_clean 20260414002654 > clean.json
-    python -m app.domain.company.parser.document_clean 20260414002654 --md > doc.md
-    python -m app.domain.company.parser.document_clean data/raw/01685996/doc_x.xml --md
+    python -m app.domain.company.parser.document_clean 20260414002654 --text > doc.txt
+    python -m app.domain.company.parser.document_clean data/raw/01685996/doc_x.xml --text
 
-    # --save 는 리다이렉트 없이 data/clean/ 에 .json 과 .md 를 함께 남긴다.
-    # 둘 다 저장하므로 --save 를 주면 --md 는 무시된다.
+    # --save 는 리다이렉트 없이 data/clean/ 에 .json 과 .txt 를 함께 남긴다.
+    # 둘 다 저장하므로 --save 를 주면 --text 는 무시된다.
     python -m app.domain.company.parser.document_clean 20260414002654 --save
 
     # --keep-spacing 은 자간 정리를 끄고 원문 공백을 그대로 둔다.
-    # --save 와 함께 쓰면 {이름}_raw.json / {이름}_raw.md 로 따로 남는다.
-    python -m app.domain.company.parser.document_clean 20260414002654 --md --keep-spacing
+    # --save 와 함께 쓰면 {이름}_raw.json / {이름}_raw.txt 로 따로 남는다.
+    python -m app.domain.company.parser.document_clean 20260414002654 --text --keep-spacing
 """
 import json
 import re
@@ -137,28 +108,6 @@ def _collapse_letter_spacing(text: str) -> str:
     return text
 
 
-def normalize_parse_key(text: str) -> str:
-    """룰베이스 매칭 전용 key. whitespace 를 전부 제거한다.
-
-        '부 채 및 자 본 총 계'
-        '부  채  및  자  본  총  계'
-        '부채 및 자본 총계'      -> 모두 '부채및자본총계'
-
-    표시용 문자열과 분리해 두는 이유가 핵심이다. 공백을 다 지운 문자열은
-    계정과목 이름을 찾는 데는 최적이지만 본문 문단에 적용하면
-    '회사는당기중...' 이 되어 LLM/RAG 품질이 떨어진다. 그래서 이 함수는
-    '이름'인 문자열(계정과목 라벨)에만 쓰고, 본문은 _squeeze 로만 다듬는다.
-
-    비교하는 양쪽 모두에 걸어야 의미가 있다.
-
-        normalize_parse_key(raw_label) == normalize_parse_key(target)
-    """
-    if not text:
-        return text
-
-    return _SPACES.sub("", text).strip()
-
-
 def _text(elem: ET.Element) -> str:
     """엘리먼트 안의 모든 텍스트를 이어붙인다. 하위 태그는 걷어낸다.
 
@@ -219,18 +168,9 @@ def _expand_rows(trs: list[ET.Element]) -> list[list[dict]]:
 
     펼쳐진 칸은 spanned=True 로 표시한다. 값은 원본과 같지만 실제 셀이 아니므로
     합계를 낼 때 중복으로 세면 안 된다는 표시다.
-
-    가로(COLSPAN)로 복제된 칸은 across=True 를 함께 단다. 렌더링할 때 둘을
-    구분해야 하기 때문이다. 가로 복제는 원래 한 칸을 늘린 것이라 같은 행에서
-    값이 반복되면 잡음일 뿐이고, 세로(ROWSPAN) 복제는 그 행의 묶음 이름이라
-    남겨두는 편이 행 하나만 읽어도 뜻이 통한다.
-
-    각 칸은 자기를 만든 엘리먼트를 elem 으로 들고 있는다. 이게 있어야
-    [4] 가 ACODE/ADELIM 을 읽으면서 동시에 그 셀의 '물리 열 번호' 를 알 수 있다.
-    elem 과 across 는 격자 안에서만 쓰고 JSON 으로는 elem 을 내보내지 않는다.
     """
     grid: list[list[dict]] = []
-    carry: dict[int, tuple[str, int, ET.Element]] = {}  # 열 인덱스 -> (값, 남은 행 수, 엘리먼트)
+    carry: dict[int, tuple[str, int]] = {}  # 열 인덱스 -> (값, 남은 행 수)
 
     for tr in trs:
         row: list[dict] = []
@@ -242,10 +182,10 @@ def _expand_rows(trs: list[ET.Element]) -> list[list[dict]]:
         while index < len(cells) or any(c >= col for c in carry):
             if col in carry:
                 # 위 행에서 ROWSPAN 으로 내려온 칸
-                value, left, elem = carry.pop(col)
-                row.append({"text": value, "spanned": True, "across": False, "elem": elem})
+                value, left = carry.pop(col)
+                row.append({"text": value, "spanned": True})
                 if left > 1:
-                    carry[col] = (value, left - 1, elem)
+                    carry[col] = (value, left - 1)
             elif index < len(cells):
                 cell = cells[index]
                 index += 1
@@ -253,16 +193,14 @@ def _expand_rows(trs: list[ET.Element]) -> list[list[dict]]:
                 rowspan = _int_attr(cell, "ROWSPAN")
                 colspan = _int_attr(cell, "COLSPAN")
                 for offset in range(colspan):
-                    row.append(
-                        {"text": value, "spanned": offset > 0, "across": offset > 0, "elem": cell}
-                    )
+                    row.append({"text": value, "spanned": offset > 0})
                     if rowspan > 1:
-                        carry[col + offset] = (value, rowspan - 1, cell)
+                        carry[col + offset] = (value, rowspan - 1)
                 col += colspan
                 continue
             else:
                 # 셀은 떨어졌는데 더 뒤쪽 열에 ROWSPAN 이 남아있다. 사이를 빈 칸으로 메운다.
-                row.append({"text": "", "spanned": False, "across": False, "elem": None})
+                row.append({"text": "", "spanned": False})
             col += 1
 
         grid.append(row)
@@ -270,10 +208,7 @@ def _expand_rows(trs: list[ET.Element]) -> list[list[dict]]:
     # 행마다 길이가 다르면(원본이 불규칙하면) 가장 긴 행에 맞춰 빈 칸을 채운다
     width = max((len(r) for r in grid), default=0)
     for row in grid:
-        row.extend(
-            {"text": "", "spanned": False, "across": False, "elem": None}
-            for _ in range(width - len(row))
-        )
+        row.extend({"text": "", "spanned": False} for _ in range(width - len(row)))
 
     return grid
 
@@ -282,9 +217,9 @@ def _section_rows(table: ET.Element, tag: str) -> list[ET.Element]:
     return [tr for part in table.findall(tag) for tr in part.iter("TR")]
 
 
-def _spanned_grid(grid: list[list[dict]], key: str = "spanned") -> list[list[bool]] | None:
+def _spanned_grid(grid: list[list[dict]]) -> list[list[bool]] | None:
     """펼쳐진 칸 표시. 전부 False 면 통째로 생략한다(정보 없이 파일만 커진다)."""
-    flags = [[cell[key] for cell in row] for row in grid]
+    flags = [[cell["spanned"] for cell in row] for row in grid]
     return flags if any(cell for row in flags for cell in row) else None
 
 
@@ -303,15 +238,11 @@ def _parse_table(table: ET.Element) -> dict:
         # 헤더가 여러 줄이면 그대로 여러 줄로 둔다. 마지막 줄만 쓰는 건 소비하는 쪽의 몫.
         "header": [[c["text"] for c in row] for row in head] or None,
         "header_spanned": _spanned_grid(head),
-        # across = COLSPAN 으로 옆으로 늘어난 칸. 같은 행에서 값이 반복되므로
-        # 렌더링할 때 비운다. spanned 는 ROWSPAN 까지 포함한 전체 복제 표시라
-        # 합계를 낼 때 중복으로 세지 말라는 뜻이고, 둘은 쓰임이 다르다.
         "rows": [[c["text"] for c in row] for row in body],
         "spanned": _spanned_grid(body),
-        "across": _spanned_grid(body, "across"),
     }
 
-    accounts = _parse_accounts(body, head)
+    accounts = _parse_accounts(body_trs)
     if accounts:
         block["accounts"] = accounts
 
@@ -335,67 +266,37 @@ def _parse_units(table: ET.Element) -> list[dict]:
 # [4] 재무제표 표 - TE 의 ACODE/ALEVEL/ADELIM 을 살린다
 # ---------------------------------------------------------------------------
 # ACODE 는 DART 표준 계정과목 코드라 회사가 달라도 같다. 라벨 문자열 매칭보다 안정적이다.
-#
-# ADELIM 은 "당기/전기" 표시가 아니다. DART 가 부여한 논리 열 슬롯이고, 표 종류에
-# 따라 물리 열 번호와 어긋난다. 실측(감사보고서 4건):
-#
-#     재무상태표·손익계산서·현금흐름표 (5열)  ADELIM 0,1,2,3,4  = 물리 0,1,2,3,4
-#     자본변동표                    (4열)  ADELIM 0,1,5,6    = 물리 0,1,2,3
-#                                          (1=자본금 5=이익잉여금 6=총계)
-#
-# 그래서 "delim 1·2 는 당기" 같은 규칙을 세우면 자본변동표를 조용히 오독한다.
-# 값이 어느 기(期)/어느 항목인지는 물리 열(col)과 그 열의 헤더(header)로 답한다.
-# delim 은 원문 속성이므로 지우지 않고 그대로 함께 남긴다.
-def _parse_accounts(grid: list[list[dict]], head: list[list[dict]]) -> list[dict]:
-    """펼쳐진 본문 격자 -> 계정과목 목록. head 는 열 제목을 붙이는 데 쓴다."""
-    # 헤더가 여러 줄이면 가장 아래 줄이 실제 열 제목이다 (위는 묶음 제목).
-    header_row = head[-1] if head else []
-
-    def column_header(col: int) -> str | None:
-        if col >= len(header_row):
-            return None
-
-        return header_row[col]["text"] or None
-
+# ADELIM 은 열 위치다. 1·2 가 당기 한 쌍, 3·4 가 전기 한 쌍이고 들여쓰기 수준에 따라
+# 쌍 중 한쪽에만 값이 들어간다. 어느 기(期)인지 잃지 않도록 ADELIM 을 그대로 남긴다.
+def _parse_accounts(trs: list[ET.Element]) -> list[dict]:
     accounts: list[dict] = []
 
-    for row in grid:
-        # spanned 칸은 COLSPAN/ROWSPAN 으로 복제된 사본이라 실제 셀이 아니다.
-        cells = [
-            (col, cell)
-            for col, cell in enumerate(row)
-            if not cell["spanned"]
-            and cell["elem"] is not None
-            and cell["elem"].get("ADELIM") is not None
-        ]
+    for tr in trs:
+        cells = [c for c in _cells(tr) if c.get("ADELIM") is not None]
         if not cells:
             continue
 
-        label = next((cell for _, cell in cells if cell["elem"].get("ADELIM") == _LABEL_DELIM), None)
-        if label is None:
+        label_cell = next((c for c in cells if c.get("ADELIM") == _LABEL_DELIM), None)
+        if label_cell is None:
             continue
 
         values = []
-        for col, cell in cells:
-            if cell["elem"].get("ADELIM") == _LABEL_DELIM:
+        for cell in cells:
+            if cell.get("ADELIM") == _LABEL_DELIM:
                 continue
-            raw = cell["text"]
+            raw = _text(cell)
             if not raw:
                 continue
             values.append({
-                "delim": int(cell["elem"].get("ADELIM")),
-                "col": col,                      # 물리 열 번호. 라벨 열이 보통 0
-                "header": column_header(col),    # 그 열의 제목. 없으면 None
-                "raw": raw,                      # 원문 그대로. 절대 가공하지 않는다
-                "value": parse_amount(raw),      # 해석 실패 시 None
+                "delim": int(cell.get("ADELIM")),
+                "raw": raw,                  # 원문 그대로. 절대 가공하지 않는다
+                "value": parse_amount(raw),  # 해석 실패 시 None
             })
 
-        level = label["elem"].get("ALEVEL")
-        display = label["text"]
+        level = label_cell.get("ALEVEL")
         accounts.append({
-            "code": label["elem"].get("ACODE"),
-            "label": display,                          # 사람·LLM 이 읽을 문자열
-            "key": normalize_parse_key(display),       # 룰베이스 매칭용
+            "code": label_cell.get("ACODE"),
+            "label": _text(label_cell),
             "level": int(level) if level is not None and level.isdigit() else None,
             "values": values,
         })
@@ -495,16 +396,7 @@ def clean_document(xml_text: str, *, normalize: bool = True) -> dict:
 # 파싱 단계와 분리해 둔 이유가 두 가지다.
 #   1) --keep-spacing 으로 통째로 끌 수 있다.
 #   2) 'raw' 를 건드리지 않는다는 보장이 이 한 곳에만 있으면 된다.
-#
-# 문자열이라고 다 같은 문자열이 아니다. 어느 필드가 '이름'이고 어느 필드가
-# '본문'인지에 따라 세기를 달리한다. 이걸 구분하지 않고 전부에 자간 붙임을
-# 걸면 '그 중 한 곳' 이 '그중한곳' 이 되어 본문 품질이 떨어진다.
-#
-#     raw            아무것도 하지 않는다. 금액·날짜 원문이다
-#     text           _squeeze 만. 문단 본문이라 어절 띄어쓰기를 지켜야 한다
-#     그 외(이름류)   _squeeze + 자간 붙임. title / label / header / rows 셀 등
-_KEEP_VERBATIM = {"raw"}    # 금액과 날짜 원문. 어떤 경우에도 변하면 안 된다
-_BODY_TEXT = {"text"}       # 문단 본문. 공백을 줄이기만 하고 붙이지는 않는다
+_KEEP_VERBATIM = {"raw"}   # 금액과 날짜 원문. 어떤 경우에도 변하면 안 된다
 
 
 def normalize_spacing(clean: dict) -> dict:
@@ -512,121 +404,68 @@ def normalize_spacing(clean: dict) -> dict:
     return _normalize_node(clean)
 
 
-def _normalize_node(node, field: str | None = None):
-    # field 는 이 문자열이 어느 키 밑에 있었는지다. 리스트를 지날 때도 그대로
-    # 물고 내려가야 rows(2중 리스트) 안의 셀까지 같은 규칙이 적용된다.
+def _normalize_node(node):
     if isinstance(node, dict):
-        return {key: _normalize_node(value, key) for key, value in node.items()}
+        return {
+            key: value if key in _KEEP_VERBATIM else _normalize_node(value)
+            for key, value in node.items()
+        }
     if isinstance(node, list):
-        return [_normalize_node(item, field) for item in node]
+        return [_normalize_node(item) for item in node]
     if isinstance(node, str):
-        if field in _KEEP_VERBATIM:
-            return node
-        if field in _BODY_TEXT:
-            return _squeeze(node)
         return _collapse_letter_spacing(_squeeze(node))
     return node
 
 
 # ---------------------------------------------------------------------------
-# [7] 렌더링 - 정리된 dict -> 마크다운
+# [7] 렌더링 - 정리된 dict -> 읽기 좋은 텍스트
 # ---------------------------------------------------------------------------
-# 여기서 하는 가공은 전부 '보여주기' 용이다. clean dict 자체(rows 격자)는
-# 원본 그대로 남으므로, 렌더링이 마음에 안 들면 JSON 쪽에서 다시 뽑으면 된다.
-def _md_cell(text: str) -> str:
-    """표 칸 안에서 격자를 깨뜨리는 문자를 막는다.
-
-    현 코퍼스에는 파이프도 개행도 0건이지만, 한 건만 섞여도 그 행 전체의
-    열이 밀린다. 값을 버리는 대신 이스케이프한다.
-    """
-    return text.replace("|", r"\|").replace("\n", "<br>")
-
-
-def _flatten_header(header: list[list[str]], width: int) -> list[str]:
-    """여러 줄 헤더 -> 한 줄. 마크다운 표는 헤더 행을 하나만 받는다.
-
-    열별로 위에서 아래로 읽으며 중복을 지우고 공백으로 잇는다.
-    ('제10기' / '유동') 두 줄이면 '제10기 유동' 이 된다.
-    """
-    flat = []
-    for col in range(width):
-        seen = dict.fromkeys(row[col] for row in header if col < len(row) and row[col])
-        flat.append(" ".join(seen))
-
-    return flat
-
-
-def _blank_across(rows: list[list[str]], flags: list[list[bool]] | None) -> list[list[str]]:
-    """본문 행에서 COLSPAN 으로 옆으로 복제된 칸을 비운다.
-
-    표지의 회계기간 셀처럼 한 칸을 두 칸으로 늘려놓은 경우, 그대로 두면
-    같은 문장이 한 행에 두 번 찍힌다. 원래 한 칸이었으니 하나만 남기면 된다.
-
-    두 가지는 건드리지 않는다.
-      - ROWSPAN 복제: 세로로 내려온 값은 그 행의 묶음 이름이라, 남아 있어야
-        행 하나만 떼어 읽어도 뜻이 통한다.
-      - 헤더 행: 열마다 이름이 있어야 한다. '당기 | 당기' 가 '당기 | ' 보다 낫다.
-    """
+def _blank_spans(rows: list[list[str]], flags: list[list[bool]] | None) -> list[list[str]]:
+    """펼쳐진 칸을 비운다. COLSPAN/ROWSPAN 으로 복제된 값이 반복되지 않게 한다."""
     if not flags:
         return rows
-
     return [
-        [("" if dup else cell) for cell, dup in zip(row, row_flags)]
+        [cell if not dup else "" for cell, dup in zip(row, row_flags)]
         for row, row_flags in zip(rows, flags)
     ]
 
 
 def _render_table(block: dict) -> list[str]:
-    """표 블록 -> 마크다운 줄 목록."""
-    header = [list(row) for row in (block.get("header") or [])]
-    rows = [list(row) for row in _blank_across(block["rows"], block.get("across"))]
+    header = _blank_spans(block.get("header") or [], block.get("header_spanned"))
+    body = _blank_spans(block["rows"], block.get("spanned"))
 
-    width = max((len(row) for row in header + rows), default=0)
-    if width == 0:
+    grid = [*header, *body]
+    if not grid:
         return []
 
-    # 마크다운 표는 모든 행의 칸 수가 같아야 한다
-    for row in header + rows:
-        row.extend([""] * (width - len(row)))
-
-    # 1열짜리는 표가 아니라 레이아웃용 껍데기다(문서당 10~12개). 문단으로 흘린다.
-    if width == 1:
-        return [row[0] for row in header + rows if row[0].strip()]
-
-    flat = _flatten_header(header, width)
+    widths = [max(len(row[i]) for row in grid if i < len(row)) for i in range(len(grid[0]))]
 
     def line(row: list[str]) -> str:
-        return "| " + " | ".join(_md_cell(cell) for cell in row) + " |"
+        return "  ".join(cell.ljust(widths[i]) for i, cell in enumerate(row)).rstrip()
 
-    # 헤더가 없는 표도 있다(문서당 25~51개). 마크다운은 헤더 행을 요구하므로
-    # 그 경우엔 빈 헤더로 연다. spanned 칸은 비우지 않고 값을 반복해서 남기는데,
-    # 각 행이 혼자서도 읽히는 편이 LLM 에 유리하기 때문이다.
-    return [line(flat), "|" + "---|" * len(flat), *(line(row) for row in rows)]
+    out = [line(row) for row in header]
+    if header:
+        out.append("-" * min(sum(widths) + 2 * (len(widths) - 1), 120))
+    out.extend(line(row) for row in body)
+    return out
 
 
-def render_markdown(clean: dict) -> str:
-    """정리된 dict -> 마크다운. LLM 입력으로 그대로 넣을 수 있는 형태다."""
+def render_text(clean: dict) -> str:
+    """정리된 dict -> 사람이 읽는 평문. 기존 xml_to_readable.py 와 같은 형식."""
     lines: list[str] = []
-
-    # 어느 회사의 무슨 문서인지가 본문에 늘 적혀 있지는 않다. 맨 위에 못박아 둔다.
-    title = " ".join(x for x in (clean["company_name"], clean["document_name"]) if x)
-    if title:
-        lines += [f"# {title}", ""]
 
     for section in clean["sections"]:
         if section["title"]:
-            lines += ["", f"## {section['title']}", ""]
+            lines.append("")
+            lines.append(f"===== {section['title']} =====")
 
         for block in section["blocks"]:
             if block["type"] == "paragraph":
-                lines += [block["text"], ""]
-                continue
+                lines.append(block["text"])
+            else:
+                lines.extend(_render_table(block))
 
-            rendered = _render_table(block)
-            if rendered:
-                lines += [*rendered, ""]
-
-    return "\n".join(lines).strip() + "\n"
+    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------
@@ -646,31 +485,27 @@ def load_xml(source: str) -> str:
 
 
 def save_outputs(clean: dict, name: str) -> tuple[Path, Path]:
-    """정리 결과를 {name}.json 과 {name}.md 로 함께 저장하고 두 경로를 반환.
-
-    .json 은 구조 원본이다. 금액 계산·DB 적재는 이쪽을 쓴다.
-    .md 는 LLM 입력용이다. 사람이 읽기에도 이쪽이 낫다.
-    """
+    """정리 결과를 {name}.json 과 {name}.txt 로 함께 저장하고 두 경로를 반환."""
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     json_path = OUTPUT_DIR / f"{name}.json"
-    md_path = OUTPUT_DIR / f"{name}.md"
+    text_path = OUTPUT_DIR / f"{name}.txt"
 
     json_path.write_text(json.dumps(clean, ensure_ascii=False, indent=2), encoding="utf-8")
-    md_path.write_text(render_markdown(clean), encoding="utf-8")
+    text_path.write_text(render_text(clean) + "\n", encoding="utf-8")
 
-    return json_path, md_path
+    return json_path, text_path
 
 
 if __name__ == "__main__":
     import sys
 
     # python -m app.domain.company.parser.document_clean 20260414002654 > clean.json
-    # python -m app.domain.company.parser.document_clean 20260414002654 --md
+    # python -m app.domain.company.parser.document_clean 20260414002654 --text
     # python -m app.domain.company.parser.document_clean 20260414002654 --save
-    # python -m app.domain.company.parser.document_clean 20260414002654 --md --keep-spacing
+    # python -m app.domain.company.parser.document_clean 20260414002654 --text --keep-spacing
     args = sys.argv[1:]
-    as_md = "--md" in args
+    as_text = "--text" in args
     as_save = "--save" in args
     keep_spacing = "--keep-spacing" in args
     target = next(a for a in args if not a.startswith("--"))
@@ -684,4 +519,4 @@ if __name__ == "__main__":
         for path in save_outputs(cleaned, name):
             print(f"저장: {path}")
     else:
-        print(render_markdown(cleaned) if as_md else json.dumps(cleaned, ensure_ascii=False, indent=2))
+        print(render_text(cleaned) if as_text else json.dumps(cleaned, ensure_ascii=False, indent=2))
