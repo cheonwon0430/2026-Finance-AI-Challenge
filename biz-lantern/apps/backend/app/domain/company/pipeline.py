@@ -357,19 +357,31 @@ def collect(
     반대로 기업개황과 원문 처리가 깨지면 예외를 올린다 - 있다고 한 보고서를 못 읽는 건
     비어 있는 결과로 덮을 문제가 아니다.
     """
+    print(f"[Pipeline] 시작 corp_code={corp_code}")
+
     report = _Reporter(on_progress)
     paths: dict[str, str] = {}
 
     company = _fetch_company(corp_code, report, paths)
+    print(f"[Pipeline] _fetch_company 결과: {company}")
+
     nts_operating, nts_error = _verify_nts(company, report)
+    print(f"[Pipeline] _verify_nts 결과: {(nts_operating, nts_error)}")
+
     audit_report = _find_audit_report(corp_code, report, paths)
+    print(f"[Pipeline] _find_audit_report 결과: {audit_report}")
 
     document = None
     if audit_report is not None:
         rcept_no = audit_report["rcept_no"]
-        document = _clean(rcept_no, _fetch_document(corp_code, rcept_no, report, paths), report, paths)
 
-    return {
+        xml_text = _fetch_document(corp_code, rcept_no, report, paths)
+        print(f"[Pipeline] _fetch_document 결과: {len(xml_text)}자 (미리보기 200자) {xml_text[:200]!r}")
+
+        document = _clean(rcept_no, xml_text, report, paths)
+        print(f"[Pipeline] _clean 결과: {document}")
+
+    result: CollectResult = {
         "corp_code": corp_code,
         "company": company,
         "nts_operating": nts_operating,
@@ -379,6 +391,10 @@ def collect(
         "paths": paths,
         "steps": report.steps,
     }
+
+    print(f"[Pipeline] 최종 결과: {result}")
+
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -411,6 +427,7 @@ def _resolve_corp_code(company_name: str) -> str | None:
     후보만 보여주고 사용자가 --corp-code 로 정하게 한다.
     """
     matches = asyncio.run(find_corp_candidates(company_name))
+    print(f"[Pipeline] find_corp_candidates 결과: {matches}")
 
     if not matches:
         print(f"'{company_name}' 검색 결과 없음")
