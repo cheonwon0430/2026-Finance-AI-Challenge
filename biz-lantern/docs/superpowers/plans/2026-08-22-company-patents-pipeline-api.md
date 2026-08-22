@@ -327,50 +327,39 @@ logger = logging.getLogger(__name__)
 
 ```python
     @staticmethod
-    def _parse_patent_items(raw_json: str) -> list[dict]:
-        """kipris_api.get_company_by_company_name() 의 JSON 문자열에서 특허 목록을 뽑는다.
+    def _extract_kipris_items(raw_json: str, key: str, fallback_key: str | None = None) -> list[dict]:
+        """kipris_api.py 가 돌려주는 JSON 문자열의 response.body.items 밑에서 항목 목록을 뽑는다.
 
-        kipris_api.py 에 주석으로 남아있던 기존 파싱 로직을 그대로 따른다. 실제
+        특허 목록(PatentUtilityInfo)과 행정이력 목록(RelatedDocsonfileInfo/item)
+        둘 다 이 구조를 그대로 따라서 하나의 헬퍼로 공유한다. 파싱 경로는
+        kipris_api.py 에 주석으로 남아있던 기존 로직을 그대로 따른 것이다 - 실제
         KIPRIS 응답으로 검증된 적이 없는 추정 구조라, 예상과 다른 구조가 오면
-        예외 대신 빈 리스트로 처리한다(특허 0건과 동일하게 취급 - 파싱 불확실성
-        때문에 전체 조회를 실패시키지 않는다).
-        """
-        try:
-            body = json.loads(raw_json).get("response", {}).get("body", {})
-            patent_info = (body.get("items") or {}).get("PatentUtilityInfo")
-        except (json.JSONDecodeError, AttributeError):
-            logger.warning("KIPRIS 특허 응답 파싱 실패 (예상 구조와 다름)")
-            return []
+        예외 대신 빈 리스트로 처리한다(0건과 동일하게 취급해 전체 조회를
+        실패시키지 않는다).
 
-        if not patent_info:
-            return []
-
-        # xmltodict 특성상 결과가 1건이면 dict, 여러 건이면 list 로 오므로 리스트로 통일
-        if isinstance(patent_info, dict):
-            patent_info = [patent_info]
-
-        return patent_info
-
-    @staticmethod
-    def _parse_history_items(raw_json: str) -> list[dict]:
-        """kipris_api.get_company_by_application_number() 의 JSON 문자열에서
-        행정이력 목록을 뽑는다. 파싱 근거는 _parse_patent_items 와 동일.
+        Args:
+            raw_json: kipris_api.py 두 함수 중 하나가 돌려준 JSON 문자열.
+            key: items 밑에서 찾을 주 키(예: "PatentUtilityInfo").
+            fallback_key: key 가 없을 때 대신 찾을 키(예: 행정이력의 "item").
         """
         try:
             body = json.loads(raw_json).get("response", {}).get("body", {})
             items = body.get("items") or {}
-            history_info = items.get("RelatedDocsonfileInfo") or items.get("item")
+            info = items.get(key)
+            if info is None and fallback_key is not None:
+                info = items.get(fallback_key)
         except (json.JSONDecodeError, AttributeError):
-            logger.warning("KIPRIS 행정이력 응답 파싱 실패 (예상 구조와 다름)")
+            logger.warning("KIPRIS 응답 파싱 실패 (예상 구조와 다름): key=%s", key)
             return []
 
-        if not history_info:
+        if not info:
             return []
 
-        if isinstance(history_info, dict):
-            history_info = [history_info]
+        # xmltodict 특성상 결과가 1건이면 dict, 여러 건이면 list 로 오므로 리스트로 통일
+        if isinstance(info, dict):
+            info = [info]
 
-        return history_info
+        return info
 
     async def _fetch_administrative_history(self, app_number: str) -> list[dict] | None:
         """출원번호 하나의 행정이력을 조회한다.
@@ -383,7 +372,7 @@ logger = logging.getLogger(__name__)
         if raw is None:
             return None
 
-        return self._parse_history_items(raw)
+        return self._extract_kipris_items(raw, "RelatedDocsonfileInfo", fallback_key="item")
 
     async def get_company_patents(self, company_name: str) -> dict:
         """기업명으로 특허 목록과 특허별 행정이력을 조회한다.
@@ -407,7 +396,7 @@ logger = logging.getLogger(__name__)
         if raw is None:
             raise ExternalAPIError(f"KIPRIS 특허 조회 실패: company_name={company_name}")
 
-        items = self._parse_patent_items(raw)
+        items = self._extract_kipris_items(raw, "PatentUtilityInfo")
 
         patents = []
         for item in items:
@@ -1058,4 +1047,5 @@ Expected: 전부 PASS. (Task 1~5 에서 만든 테스트 + 기존 `test_document
 
 - **스펙 커버리지**: 특허 조회(Task 2), 특허별 행정이력(Task 2), Pipeline 실행(Task 3), Router 엔드포인트(Task 5), 응답 구조 `{company_name, patents, pipeline}`(Task 4/5), 계층 제약(Router는 Service만 호출 - Task 5), 에러 처리 5종(기업명 없음/특허없음/KIPRIS 실패/Pipeline 실패/Timeout - Task 1,2,3,5), DI 유지(Task 5), 타입힌트+Docstring+주석(전 Task) 모두 특정 Task에 매핑됨. 사용자 추가 요청인 "주석 추가"와 "FastAPI 실행/테스트 방법"은 각각 전 Task의 코드 주석과 Task 6에서 다룸. 사용자가 2026-08-22 대화에서 `GET /companies/{company_id}` 를 더 이상 쓰지 않기로 결정해 Task 5 에서 해당 엔드포인트와 이제 쓰이지 않는 `CompanyService.get_company`/`CompanyRepository.get_by_id`를 함께 제거하도록 반영함(원래 계획의 `/{company_id:int}` 라우팅 충돌 회피안은 대체됨).
 - **플레이스홀더 스캔**: 없음. 모든 Step 에 실제 코드/명령어 포함.
-- **타입/이름 일관성**: `get_company_patents`, `run_company_pipeline`, `get_company_overview`, `_parse_patent_items`, `_parse_history_items`, `_fetch_administrative_history`, `CompanyNotFoundError`, `AmbiguousCompanyNameError(company_name, candidates)`, `ExternalAPIError`, `CompanyOverviewResponse` — Task 전체에서 동일한 이름/시그니처로 사용됨을 확인.
+- **타입/이름 일관성**: `get_company_patents`, `run_company_pipeline`, `get_company_overview`, `_extract_kipris_items`, `_fetch_administrative_history`, `CompanyNotFoundError`, `AmbiguousCompanyNameError(company_name, candidates)`, `ExternalAPIError`, `CompanyOverviewResponse` — Task 전체에서 동일한 이름/시그니처로 사용됨을 확인.
+- **DRY 재검토**: 초안에는 특허/행정이력 파싱이 구조만 같고 키만 다른 `_parse_patent_items`/`_parse_history_items` 두 메서드로 중복돼 있었다. 사전 검토에서 발견해 `_extract_kipris_items(raw_json, key, fallback_key=None)` 하나로 합쳤다(Task 2).
