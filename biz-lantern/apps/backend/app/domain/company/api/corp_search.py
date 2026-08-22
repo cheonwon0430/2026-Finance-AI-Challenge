@@ -121,9 +121,9 @@ async def search_by_name(keyword: str) -> list[dict]:
 
     # return search(load_corps(xml_path.read_bytes()), keyword)
     # [{'corp_code': '01345812', 'corp_name': '삼성전자서비스씨에스', 'stock_code': '', 'modify_date': '20230125'}]
-    # corp_name == keyword 
+    # corp_name == keyword
     # TODO : 기업 조회시 여러개 말고 한개가 나오게 해야함.
-    return search(load_corps(xml_path.read_bytes()), keyword)
+    return await asyncio.to_thread(lambda: search(load_corps(xml_path.read_bytes()), keyword))
 
 
 if __name__ == "__main__":
