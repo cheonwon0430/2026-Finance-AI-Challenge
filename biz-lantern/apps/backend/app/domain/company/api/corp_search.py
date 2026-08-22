@@ -3,10 +3,9 @@
 
 corpcode.xml 이 2주 이내면 그걸로 바로 검색하고, 없거나 오래됐으면 새로 받아서 검색한다.
 
-사용법:
-    python -m app.domain.company.api.corp_search 핀샷
+이 모듈은 pipeline.py 가 쓰는 하위 구현이다. 직접 실행하는 진입점을 따로 두지 않는다.
+검색만 해보고 싶다면 `python -m app.domain.company.pipeline 핀샷` 을 쓴다.
 """
-import asyncio
 import re
 import time
 from pathlib import Path
@@ -80,18 +79,3 @@ async def search_by_name(keyword: str) -> list[dict]:
     xml_path = await ensure_corpcode_xml()
 
     return search(load_corps(xml_path.read_bytes()), keyword)
-
-
-if __name__ == "__main__":
-    import sys
-
-    # python -m app.domain.company.api.corp_search 핀샷
-    matches = asyncio.run(search_by_name(sys.argv[1]))
-    print(f"'{sys.argv[1]}' 검색 결과: {len(matches)}건")
-
-    for corp in matches[:20]:
-        listed = f"상장({corp['stock_code']})" if corp["stock_code"] else "비상장"
-        print(f"  {corp['corp_code']}  {corp['corp_name']:<20} {listed}  수정일:{corp['modify_date']}")
-
-    if len(matches) > 20:
-        print(f"  ... 외 {len(matches) - 20}건")

@@ -1,4 +1,4 @@
-import https
+import httpx
 
 from app.common.config import settings
 from app.domain.company.api.nts_api import is_operating_business
@@ -13,7 +13,7 @@ def get_company_overview(corp_code: str) -> dict:
         "crtfc_key": settings.dart_api_key,
         "corp_code": corp_code,
     }
-    response = https.get(DART_COMPANY_URL, params=params)
+    response = httpx.get(DART_COMPANY_URL, params=params)
     response.raise_for_status()
 
     data = response.json()
@@ -37,5 +37,3 @@ def is_verified_operating_business(corp_code: str) -> bool:
 if __name__ == "__main__":
     result = is_verified_operating_business(corp_code="01836952")
     print(result)
-
-

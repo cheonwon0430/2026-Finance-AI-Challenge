@@ -7,6 +7,7 @@ from app.domain.company.api.nts_api import (
     get_business_status as fetch_business_status,
 )
 from app.domain.company.api.kipris_api import get_company_by_company_name
+from app.domain.company.pipeline import find_corp_candidates
 
 
 class CompanyService:
@@ -38,3 +39,10 @@ class CompanyService:
 
     def get_business_status(self, b_no_list: list[str]) -> str:
         return fetch_business_status(b_no_list)
+
+    async def search_companies_by_name(
+        self,
+        company_name: str,
+    ) -> list[dict]:
+        """DART corp_code 후보 검색. corp_search 는 pipeline 을 거쳐서만 쓴다."""
+        return await find_corp_candidates(company_name)

@@ -31,6 +31,29 @@ async def create_company(
     return company
 
 
+class CorpCandidateResponse(BaseModel):
+    corp_code: str
+    corp_name: str
+    stock_code: str
+    modify_date: str
+
+
+@router.get(
+    "/search",
+    response_model=List[CorpCandidateResponse],
+)
+async def search_companies(
+    name: str,
+    session: AsyncSession = Depends(get_db),
+):
+    """
+    회사명으로 DART corp_code 후보를 검색합니다.
+    """
+    service = CompanyService(session)
+
+    return await service.search_companies_by_name(name)
+
+
 @router.get(
     "/{company_id}",
     response_model=CompanyResponse,

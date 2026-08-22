@@ -6,9 +6,9 @@ api/ 와 parser/ 는 건드리지 않는다. 이미 있는 함수들이 돌려�
 
 수집은 두 단계로 나뉜다.
 
-    [1단계] 회사명(자연어) -> corp_search.search_by_name -> 후보 리스트
+    [1단계] 회사명(자연어) -> find_corp_candidates() -> corp_search.search_by_name -> 후보 리스트
             부분 일치라 "핀" 하나로도 수십 건이 나온다. 자동으로 고르지 않고
-            호출하는 쪽(라우터 / CLI)이 corp_code 를 확정한다.
+            호출하는 쪽(서비스 / CLI)이 corp_code 를 확정한다.
 
     [2단계] corp_code -> collect() -> 원천 데이터 파일 + CollectResult
 
@@ -327,6 +327,14 @@ def _clean(rcept_no: str, xml_text: str, report: _Reporter, paths: dict[str, str
 # ---------------------------------------------------------------------------
 # [5] 파이프라인
 # ---------------------------------------------------------------------------
+async def find_corp_candidates(company_name: str) -> list[dict]:
+    """[1단계] 회사명으로 corp_code 후보를 찾는다.
+
+    corp_search 는 하위 구현이라 이 함수를 거치지 않고 직접 부르지 않는다.
+    """
+    return await search_by_name(company_name)
+
+
 class CollectResult(TypedDict):
     corp_code: str
     company: dict                # 기업개황 원본
@@ -402,7 +410,7 @@ def _resolve_corp_code(company_name: str) -> str | None:
     부분 일치라 여러 건이 흔하다. 자동으로 고르면 엉뚱한 회사를 분석하게 되므로
     후보만 보여주고 사용자가 --corp-code 로 정하게 한다.
     """
-    matches = asyncio.run(search_by_name(company_name))
+    matches = asyncio.run(find_corp_candidates(company_name))
 
     if not matches:
         print(f"'{company_name}' 검색 결과 없음")
