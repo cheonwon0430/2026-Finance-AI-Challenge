@@ -14,7 +14,7 @@ from app.domain.company.api.kipris_api import (
     get_company_by_application_number,
     get_company_by_company_name,
 )
-from app.domain.company.api.corp_search import search_by_name
+from app.domain.company.api.corp_search import normalize, search_by_name
 from app.domain.company.pipeline import collect
 from app.domain.company.exceptions import (
     AmbiguousCompanyNameError,
@@ -161,6 +161,14 @@ class CompanyService:
 
         if not matches:
             raise CompanyNotFoundError(f"'{company_name}' 에 매칭되는 기업이 없습니다.")
+
+        if len(matches) > 1:
+            # corp_search.search() 는 부분 일치라 "삼성전자" 검색이 "삼성전자서비스" 등과
+            # 함께 여러 건 걸릴 수 있다. 정확히 일치하는 후보가 하나뿐이면 그것으로
+            # 좁힌다 - 이건 자동으로 고르는 게 아니라 모호함을 해소하는 것이다.
+            exact = [m for m in matches if normalize(m["corp_name"]) == normalize(company_name)]
+            if len(exact) == 1:
+                matches = exact
 
         if len(matches) > 1:
             raise AmbiguousCompanyNameError(company_name, matches)
