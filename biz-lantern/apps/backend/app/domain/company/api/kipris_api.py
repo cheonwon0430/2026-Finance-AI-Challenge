@@ -7,13 +7,14 @@ from app.common.config import settings
 
 # 1. API 설정
 ACCESS_KEY = settings.kipris_api_key  # 환경변수로 뽑기
-URL = "http://plus.kipris.or.kr/openapi/rest/patUtiModInfoSearchSevice/freeSearchInfo"
+
 
 # 2. 기업명 리스트
 # COMPANIES = ["삼성전자", "LG전자"]
 # print(f"검색할 기업명 리스트: {COMPANIES}\n")
 
 def get_company_by_company_name(company: str):
+    URL = "http://plus.kipris.or.kr/openapi/rest/patUtiModInfoSearchSevice/freeSearchInfo"
     # 3. 요청 파라미터 설정 (출원인: company)
     params = {
         "word": f"AP=[{company}]",  # 출원인 검색식
@@ -71,6 +72,7 @@ def get_company_by_company_name(company: str):
 
 
 def get_company_by_application_number(app_number: str):
+    URL = "http://plus.kipris.or.kr/openapi/rest/RelatedDocsonfilePatService/relatedDocsonfileInfo"
     # 3. 요청 파라미터 설정 (출원번호: app_number)
     params = {
         "applicationNumber": app_number,
