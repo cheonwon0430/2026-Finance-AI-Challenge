@@ -1,3 +1,7 @@
+import asyncio
+import json
+import logging
+
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.company.model import Company
@@ -6,7 +10,13 @@ from app.domain.company.schema import CompanyCreate
 from app.domain.company.api.nts_api import (
     get_business_status as fetch_business_status,
 )
-from app.domain.company.api.kipris_api import get_company_by_company_name
+from app.domain.company.api.kipris_api import (
+    get_company_by_application_number,
+    get_company_by_company_name,
+)
+from app.domain.company.exceptions import ExternalAPIError
+
+logger = logging.getLogger(__name__)
 
 
 class CompanyService:
@@ -38,3 +48,93 @@ class CompanyService:
 
     def get_business_status(self, b_no_list: list[str]) -> str:
         return fetch_business_status(b_no_list)
+
+    @staticmethod
+    def _extract_kipris_items(raw_json: str, key: str, fallback_key: str | None = None) -> list[dict]:
+        """kipris_api.py 가 돌려주는 JSON 문자열의 response.body.items 밑에서 항목 목록을 뽑는다.
+
+        특허 목록(PatentUtilityInfo)과 행정이력 목록(RelatedDocsonfileInfo/item)
+        둘 다 이 구조를 그대로 따라서 하나의 헬퍼로 공유한다. 파싱 경로는
+        kipris_api.py 에 주석으로 남아있던 기존 로직을 그대로 따른 것이다 - 실제
+        KIPRIS 응답으로 검증된 적이 없는 추정 구조라, 예상과 다른 구조가 오면
+        예외 대신 빈 리스트로 처리한다(0건과 동일하게 취급해 전체 조회를
+        실패시키지 않는다).
+
+        Args:
+            raw_json: kipris_api.py 두 함수 중 하나가 돌려준 JSON 문자열.
+            key: items 밑에서 찾을 주 키(예: "PatentUtilityInfo").
+            fallback_key: key 가 없을 때 대신 찾을 키(예: 행정이력의 "item").
+        """
+        try:
+            body = json.loads(raw_json).get("response", {}).get("body", {})
+            items = body.get("items") or {}
+            info = items.get(key)
+            if info is None and fallback_key is not None:
+                info = items.get(fallback_key)
+        except (json.JSONDecodeError, AttributeError):
+            logger.warning("KIPRIS 응답 파싱 실패 (예상 구조와 다름): key=%s", key)
+            return []
+
+        if not info:
+            return []
+
+        # xmltodict 특성상 결과가 1건이면 dict, 여러 건이면 list 로 오므로 리스트로 통일
+        if isinstance(info, dict):
+            info = [info]
+
+        return info
+
+    async def _fetch_administrative_history(self, app_number: str) -> list[dict] | None:
+        """출원번호 하나의 행정이력을 조회한다.
+
+        get_company_by_application_number 는 동기 함수라 asyncio.to_thread 로
+        감싼다. 실패하면(None) 그대로 None 을 돌려주고 예외를 올리지 않는다 -
+        특허 하나의 행정이력 조회 실패로 전체 특허 목록 조회를 막지 않기 위해서다.
+        """
+        raw = await asyncio.to_thread(get_company_by_application_number, app_number)
+        if raw is None:
+            return None
+
+        return self._extract_kipris_items(raw, "RelatedDocsonfileInfo", fallback_key="item")
+
+    async def get_company_patents(self, company_name: str) -> dict:
+        """기업명으로 특허 목록과 특허별 행정이력을 조회한다.
+
+        kipris_api.py 의 두 함수를 그대로 재사용한다. 둘 다 동기(httpx 동기
+        클라이언트) 함수라서 asyncio.to_thread 로 감싸 이벤트 루프를 막지 않는다.
+
+        Args:
+            company_name: 특허 출원인으로 검색할 기업명.
+
+        Returns:
+            {"count": int, "items": [{"application_number", "invention_name",
+            "applicant", "application_date", "status",
+            "administrative_history"}, ...]}
+
+        Raises:
+            ExternalAPIError: KIPRIS 특허 검색 자체가 실패했을 때. 특허 0건은
+                에러가 아니라 정상적인 빈 결과로 취급한다.
+        """
+        raw = await asyncio.to_thread(get_company_by_company_name, company_name)
+        if raw is None:
+            raise ExternalAPIError(f"KIPRIS 특허 조회 실패: company_name={company_name}")
+
+        items = self._extract_kipris_items(raw, "PatentUtilityInfo")
+
+        patents = []
+        for item in items:
+            app_number = item.get("ApplicationNumber")
+            history = await self._fetch_administrative_history(app_number) if app_number else None
+
+            patents.append(
+                {
+                    "application_number": app_number,
+                    "invention_name": item.get("InventionName"),
+                    "applicant": item.get("Applicant"),
+                    "application_date": item.get("ApplicationDate"),
+                    "status": item.get("RegistrationStatus"),
+                    "administrative_history": history,
+                }
+            )
+
+        return {"count": len(patents), "items": patents}
