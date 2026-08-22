@@ -107,7 +107,10 @@ class CompanyService:
         if raw is None:
             return None
 
-        return self._extract_kipris_items(raw, "RelatedDocsonfileInfo", fallback_key="item")
+        # 실서버(Task 6 수동 검증) 확인 결과, 이 API 의 실제 최상위 키는 코드에 남아있던
+        # 추정치(RelatedDocsonfileInfo/item)가 아니라 relateddocsonfileInfo(소문자 시작)다.
+        # fallback_key 는 만약을 위해 남겨두되 실제로는 쓰이지 않는다.
+        return self._extract_kipris_items(raw, "relateddocsonfileInfo", fallback_key="item")
 
     async def get_company_patents(self, company_name: str) -> dict:
         """기업명으로 특허 목록과 특허별 행정이력을 조회한다.

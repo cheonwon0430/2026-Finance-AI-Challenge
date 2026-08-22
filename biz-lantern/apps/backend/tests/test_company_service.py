@@ -30,9 +30,13 @@ def _empty_patents_json() -> str:
 
 
 def _history_json(history_infos) -> str:
-    """kipris_api.get_company_by_application_number() 이 돌려주는 형태의 JSON 문자열을 만든다."""
+    """kipris_api.get_company_by_application_number() 이 돌려주는 형태의 JSON 문자열을 만든다.
+
+    실제 KIPRIS 응답의 최상위 키는 relateddocsonfileInfo(소문자 시작)다 - Task 6
+    수동 검증에서 실서버로 확인했다.
+    """
     return json.dumps(
-        {"response": {"body": {"items": {"RelatedDocsonfileInfo": history_infos}}}},
+        {"response": {"body": {"items": {"relateddocsonfileInfo": history_infos}}}},
         ensure_ascii=False,
     )
 
