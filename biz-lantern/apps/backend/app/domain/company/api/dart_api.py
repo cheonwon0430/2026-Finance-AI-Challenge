@@ -1,4 +1,4 @@
-import requests
+import https
 
 from app.common.config import settings
 from app.domain.company.api.nts_api import is_operating_business
@@ -13,7 +13,7 @@ def get_company_overview(corp_code: str) -> dict:
         "crtfc_key": settings.dart_api_key,
         "corp_code": corp_code,
     }
-    response = requests.get(DART_COMPANY_URL, params=params)
+    response = https.get(DART_COMPANY_URL, params=params)
     response.raise_for_status()
 
     data = response.json()
@@ -23,7 +23,7 @@ def get_company_overview(corp_code: str) -> dict:
     return data
 
 
-def is_verified_opegitrating_business(corp_code: str) -> bool:
+def is_verified_operating_business(corp_code: str) -> bool:
     """DART 기업개황에서 bizr_no/ceo_nm/est_dt를 가져와 국세청 진위확인·상태조회로 검증한다."""
     overview = get_company_overview(corp_code)
 

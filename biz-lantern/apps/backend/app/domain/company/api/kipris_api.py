@@ -1,5 +1,6 @@
 import json
-import requests
+
+import httpx
 import xmltodict
 
 from app.common.config import settings
@@ -23,7 +24,7 @@ def get_company_by_company_name(company: str):
 
     try:
         print(f"{company} 특허/실용 공개·등록공보 정보를 조회 중입니다...\n")
-        response = requests.get(URL, params=params)
+        response = httpx.get(URL, params=params, timeout=30, follow_redirects=True)
         response.raise_for_status()
 
         # XML -> Python dict 변환
@@ -32,7 +33,7 @@ def get_company_by_company_name(company: str):
         # (필요시) dict -> JSON 문자열 변환 및 출력
         json_data = json.dumps(dict_data, ensure_ascii=False, indent=2)
         print("JSON 변환 결과:\n", json_data)
-        
+
         return json_data
 
         # # 4. 데이터 파싱 및 안전한 탐색
@@ -63,58 +64,58 @@ def get_company_by_company_name(company: str):
         #     print(f"    출원일: {app_date}")
         #     print(f"    상태: {status}\n")
 
-    except requests.exceptions.RequestException as e:
+    except httpx.HTTPError as e:
         print(f"API 요청 오류: {e}")
     except Exception as e:
         print(f"데이터 파싱 오류: {e}")
 
 
-def get_company_by_XXXX(company: str):
-    pass
-
-  # 3. 요청 파라미터 설정 (출원번호: app_number)
+def get_company_by_application_number(app_number: str):
+    # 3. 요청 파라미터 설정 (출원번호: app_number)
     params = {
-         "applicationNumber": app_number,
-         "accessKey": ACCESS_KEY,
-     }
- 
+        "applicationNumber": app_number,
+        "accessKey": ACCESS_KEY,
+    }
+
     try:
-         print(f"{app_number} 특허/실용 행정처리 이력을 조회 중입니다...\n")
-         response = requests.get(URL, params=params)
-         response.raise_for_status()
- 
-         # XML -> Python dict 변환
-         dict_data = xmltodict.parse(response.content)
- 
-         # (필요시) dict -> JSON 문자열 변환 및 출력
-         json_data = json.dumps(dict_data, ensure_ascii=False, indent=2)
-         print("JSON 변환 결과:\n", json_data)
- 
-         # # 4. 데이터 파싱 및 안전한 탐색
-         # body = dict_data.get("response", {}).get("body", {})
-         # items = body.get("items", {})
- 
-         # if not items:
-         #     print("검색 결과가 없습니다.\n")
-         #     continue
- 
-         # history_info = items.get("RelatedDocsonfileInfo") or items.get("item")
- 
-         # # xmltodict 특성상 결과가 1건이면 dict, 여러 건이면 list로 반환되므로 리스트로 통일
-         # if isinstance(history_info, dict):
-         #     history_info = [history_info]
- 
-         # print(f"총 {len(history_info)}건의 행정처리 이력을 조회했습니다.\n")
-         # for i, item in enumerate(history_info, 1):
-         #     doc_name = item.get("DocumentName") or "N/A"
-         #     receipt_date = item.get("ReceiptDate") or "N/A"
-         #     doc_status = item.get("DocumentStatus") or "N/A"
- 
-         #     print(f"[{i}] {doc_name}")
-         #     print(f"    접수일: {receipt_date}")
-         #     print(f"    처리상태: {doc_status}\n")
- 
-    except requests.exceptions.RequestException as e:
-         print(f"API 요청 오류: {e}")
+        print(f"{app_number} 특허/실용 행정처리 이력을 조회 중입니다...\n")
+        response = httpx.get(URL, params=params, timeout=30, follow_redirects=True)
+        response.raise_for_status()
+
+        # XML -> Python dict 변환
+        dict_data = xmltodict.parse(response.content)
+
+        # (필요시) dict -> JSON 문자열 변환 및 출력
+        json_data = json.dumps(dict_data, ensure_ascii=False, indent=2)
+        print("JSON 변환 결과:\n", json_data)
+
+        return json_data
+
+        # # 4. 데이터 파싱 및 안전한 탐색
+        # body = dict_data.get("response", {}).get("body", {})
+        # items = body.get("items", {})
+
+        # if not items:
+        #     print("검색 결과가 없습니다.\n")
+        #     continue
+
+        # history_info = items.get("RelatedDocsonfileInfo") or items.get("item")
+
+        # # xmltodict 특성상 결과가 1건이면 dict, 여러 건이면 list로 반환되므로 리스트로 통일
+        # if isinstance(history_info, dict):
+        #     history_info = [history_info]
+
+        # print(f"총 {len(history_info)}건의 행정처리 이력을 조회했습니다.\n")
+        # for i, item in enumerate(history_info, 1):
+        #     doc_name = item.get("DocumentName") or "N/A"
+        #     receipt_date = item.get("ReceiptDate") or "N/A"
+        #     doc_status = item.get("DocumentStatus") or "N/A"
+
+        #     print(f"[{i}] {doc_name}")
+        #     print(f"    접수일: {receipt_date}")
+        #     print(f"    처리상태: {doc_status}\n")
+
+    except httpx.HTTPError as e:
+        print(f"API 요청 오류: {e}")
     except Exception as e:
-         print(f"데이터 파싱 오류: {e}")
+        print(f"데이터 파싱 오류: {e}")

@@ -30,11 +30,13 @@ def normalize(name: str) -> str:
     DART 의 corp_name 은 "트래블월렛" 인데 사용자는 "주식회사 트래블월렛" 으로 검색한다.
     양쪽에 같은 규칙을 적용해야 서로 만난다.
 
+
     Args:
         name: 정규화할 회사명 (DART corp_name 또는 사용자 검색어).
 
     Returns:
         공백과 앞뒤 법인 접두/접미어를 제거한 문자열.
+
     """
     return _AFFIX.sub("", re.sub(r"\s+", "", name))
 

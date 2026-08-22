@@ -3,8 +3,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     database_url: str
+    kipris_api_key: str | None = None
     dart_api_key: str
-    kipris_api_key: str
     nts_api_key: str
 
     model_config = SettingsConfigDict(
@@ -14,4 +14,4 @@ class Settings(BaseSettings):
     )
 
 
-settings = Settings()
+settings = Settings() # pyright: ignore[reportCallIssue]
