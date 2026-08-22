@@ -181,3 +181,29 @@ class CompanyService:
             raise ExternalAPIError(
                 f"파이프라인 실행 실패: corp_code={corp_code}"
             ) from error
+
+    async def get_company_overview(self, company_name: str) -> dict:
+        """기업명 하나로 특허(+행정이력)와 수집 파이프라인 결과를 함께 조회한다.
+
+        Router 가 호출하는 진입점. 두 조회는 서로 독립적인 외부 API 호출이라
+        순차 실행한다(동시 실행은 지금 범위에서 불필요한 최적화로 보고 배제).
+
+        Args:
+            company_name: 조회할 기업명.
+
+        Returns:
+            {"company_name": str, "patents": dict, "pipeline": dict}.
+
+        Raises:
+            CompanyNotFoundError, AmbiguousCompanyNameError, ExternalAPIError:
+                get_company_patents / run_company_pipeline 가 올리는 예외를
+                그대로 전파한다.
+        """
+        patents = await self.get_company_patents(company_name)
+        pipeline_result = await self.run_company_pipeline(company_name)
+
+        return {
+            "company_name": company_name,
+            "patents": patents,
+            "pipeline": pipeline_result,
+        }

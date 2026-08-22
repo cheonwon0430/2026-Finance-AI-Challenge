@@ -193,3 +193,25 @@ async def test_run_company_pipeline_은_collect_실패시_ExternalAPIError로_�
 
     with pytest.raises(ExternalAPIError):
         await service.run_company_pipeline("핀샷")
+
+
+@pytest.mark.asyncio
+async def test_get_company_overview_는_특허와_파이프라인_결과를_합친다(monkeypatch):
+    async def fake_get_company_patents(self, company_name):
+        return {"count": 0, "items": []}
+
+    async def fake_run_company_pipeline(self, company_name):
+        return {"corp_code": "01836952"}
+
+    monkeypatch.setattr(CompanyService, "get_company_patents", fake_get_company_patents)
+    monkeypatch.setattr(CompanyService, "run_company_pipeline", fake_run_company_pipeline)
+
+    service = CompanyService(None)
+
+    result = await service.get_company_overview("핀샷")
+
+    assert result == {
+        "company_name": "핀샷",
+        "patents": {"count": 0, "items": []},
+        "pipeline": {"corp_code": "01836952"},
+    }
