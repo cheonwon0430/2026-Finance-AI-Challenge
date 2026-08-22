@@ -6,6 +6,7 @@ corpcode.xml 이 2주 이내면 그걸로 바로 검색하고, 없거나 오래�
 이 모듈은 pipeline.py 가 쓰는 하위 구현이다. 직접 실행하는 진입점을 따로 두지 않는다.
 검색만 해보고 싶다면 `python -m app.domain.company.pipeline 핀샷` 을 쓴다.
 """
+import asyncio
 import re
 import time
 from pathlib import Path
@@ -118,9 +119,6 @@ async def search_by_name(keyword: str) -> list[dict]:
     """
     xml_path = await ensure_corpcode_xml()
 
-<<<<<<< HEAD
-    return search(load_corps(xml_path.read_bytes()), keyword)
-=======
     # return search(load_corps(xml_path.read_bytes()), keyword)
     # [{'corp_code': '01345812', 'corp_name': '삼성전자서비스씨에스', 'stock_code': '', 'modify_date': '20230125'}]
     # corp_name == keyword
@@ -145,4 +143,3 @@ if __name__ == "__main__":
 # 사소한 지적 - 전민우 : archive.namelist()[0]으로 zip 안의 첫 번째 파일을 그냥 가져오는데, 
 # DART corpCode.xml zip은 항상 CORPCODE.xml 파일 하나만 들어있는 구조라 실제로 문제는 없습니다. 
 # 다만 아주 엄격하게 하려면 .xml로 끝나는 파일명을 찾아서 읽는 게 더 안전하긴 합니다 (지금은 필요 없는 수준의 엄격함).
->>>>>>> 1850e13c6c8b61bf7f9aef990f316c8e12e5ae05
