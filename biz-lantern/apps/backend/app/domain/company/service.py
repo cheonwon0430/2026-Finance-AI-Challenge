@@ -40,12 +40,6 @@ class CompanyService:
 
         return await self.repository.create(company)
 
-    async def get_company(
-        self,
-        company_id: int,
-    ) -> Company | None:
-        return await self.repository.get_by_id(company_id)
-
     async def get_company_by_kipris_id(
         self,
         company_name: str,
