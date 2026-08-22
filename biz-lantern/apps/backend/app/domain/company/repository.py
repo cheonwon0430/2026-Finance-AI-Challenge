@@ -1,4 +1,3 @@
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.company.model import Company
@@ -14,10 +13,3 @@ class CompanyRepository:
         await self.session.refresh(company)
 
         return company
-
-    async def get_by_id(self, company_id: int) -> Company | None:
-        result = await self.session.execute(
-            select(Company).where(Company.id == company_id)
-        )
-
-        return result.scalar_one_or_none()
