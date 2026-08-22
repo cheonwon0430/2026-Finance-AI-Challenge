@@ -14,7 +14,13 @@ from app.domain.company.api.kipris_api import (
     get_company_by_application_number,
     get_company_by_company_name,
 )
-from app.domain.company.exceptions import ExternalAPIError
+from app.domain.company.api.corp_search import search_by_name
+from app.domain.company.pipeline import collect
+from app.domain.company.exceptions import (
+    AmbiguousCompanyNameError,
+    CompanyNotFoundError,
+    ExternalAPIError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -138,3 +144,40 @@ class CompanyService:
             )
 
         return {"count": len(patents), "items": patents}
+
+    async def run_company_pipeline(self, company_name: str) -> dict:
+        """기업명으로 corp_code 를 찾아 pipeline.collect() 를 실행한다.
+
+        corp_code 를 자동으로 고르지 않는다. 정확히 1건 매칭될 때만 진행하고,
+        0건/2건 이상이면 각각 CompanyNotFoundError/AmbiguousCompanyNameError 를
+        올린다 - pipeline.py CLI(_resolve_corp_code)와 동일한 안전 철학이다.
+
+        Args:
+            company_name: 파이프라인을 실행할 기업명.
+
+        Returns:
+            pipeline.collect() 가 돌려주는 CollectResult(dict) 그대로.
+
+        Raises:
+            CompanyNotFoundError: 매칭되는 corp_code 가 없을 때.
+            AmbiguousCompanyNameError: corp_code 가 여러 건 매칭될 때.
+            ExternalAPIError: collect() 가 치명적 실패로 예외를 올렸을 때.
+        """
+        matches = await search_by_name(company_name)
+
+        if not matches:
+            raise CompanyNotFoundError(f"'{company_name}' 에 매칭되는 기업이 없습니다.")
+
+        if len(matches) > 1:
+            raise AmbiguousCompanyNameError(company_name, matches)
+
+        corp_code = matches[0]["corp_code"]
+
+        # collect() 는 동기 함수(내부에서 DART/국세청을 여러 번 순차 호출)이므로
+        # asyncio.to_thread 로 감싸 이벤트 루프를 막지 않는다.
+        try:
+            return await asyncio.to_thread(collect, corp_code)
+        except Exception as error:
+            raise ExternalAPIError(
+                f"파이프라인 실행 실패: corp_code={corp_code}"
+            ) from error

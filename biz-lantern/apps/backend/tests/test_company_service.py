@@ -8,7 +8,11 @@ import json
 
 import pytest
 
-from app.domain.company.exceptions import ExternalAPIError
+from app.domain.company.exceptions import (
+    AmbiguousCompanyNameError,
+    CompanyNotFoundError,
+    ExternalAPIError,
+)
 from app.domain.company.service import CompanyService
 
 
@@ -116,3 +120,76 @@ async def test_get_company_patents_는_행정이력_조회가_실패해도_나�
 
     assert result["count"] == 1
     assert result["items"][0]["administrative_history"] is None
+
+
+@pytest.mark.asyncio
+async def test_run_company_pipeline_은_매칭이_없으면_CompanyNotFoundError를_올린다(monkeypatch):
+    async def fake_search_by_name(company_name):
+        return []
+
+    monkeypatch.setattr("app.domain.company.service.search_by_name", fake_search_by_name)
+
+    service = CompanyService(None)
+
+    with pytest.raises(CompanyNotFoundError):
+        await service.run_company_pipeline("없는회사")
+
+
+@pytest.mark.asyncio
+async def test_run_company_pipeline_은_동명다건이면_AmbiguousCompanyNameError를_올린다(monkeypatch):
+    matches = [
+        {"corp_code": "001", "corp_name": "삼성전자", "stock_code": "005930", "modify_date": "20230101"},
+        {"corp_code": "002", "corp_name": "삼성전자서비스", "stock_code": "", "modify_date": "20230101"},
+    ]
+
+    async def fake_search_by_name(company_name):
+        return matches
+
+    monkeypatch.setattr("app.domain.company.service.search_by_name", fake_search_by_name)
+
+    service = CompanyService(None)
+
+    with pytest.raises(AmbiguousCompanyNameError) as exc_info:
+        await service.run_company_pipeline("삼성")
+
+    assert exc_info.value.candidates == matches
+
+
+@pytest.mark.asyncio
+async def test_run_company_pipeline_은_1건_매칭시_collect_결과를_그대로_반환한다(monkeypatch):
+    async def fake_search_by_name(company_name):
+        return [
+            {"corp_code": "01836952", "corp_name": "핀샷", "stock_code": "", "modify_date": "20230101"}
+        ]
+
+    def fake_collect(corp_code, on_progress=None):
+        assert corp_code == "01836952"
+        return {"corp_code": corp_code, "company": {"corp_name": "핀샷"}}
+
+    monkeypatch.setattr("app.domain.company.service.search_by_name", fake_search_by_name)
+    monkeypatch.setattr("app.domain.company.service.collect", fake_collect)
+
+    service = CompanyService(None)
+
+    result = await service.run_company_pipeline("핀샷")
+
+    assert result == {"corp_code": "01836952", "company": {"corp_name": "핀샷"}}
+
+
+@pytest.mark.asyncio
+async def test_run_company_pipeline_은_collect_실패시_ExternalAPIError로_감싼다(monkeypatch):
+    async def fake_search_by_name(company_name):
+        return [
+            {"corp_code": "01836952", "corp_name": "핀샷", "stock_code": "", "modify_date": "20230101"}
+        ]
+
+    def fake_collect(corp_code, on_progress=None):
+        raise ValueError("DART 기업개황 조회 실패")
+
+    monkeypatch.setattr("app.domain.company.service.search_by_name", fake_search_by_name)
+    monkeypatch.setattr("app.domain.company.service.collect", fake_collect)
+
+    service = CompanyService(None)
+
+    with pytest.raises(ExternalAPIError):
+        await service.run_company_pipeline("핀샷")
