@@ -33,8 +33,8 @@ class CompanyService:
     async def get_company_by_kipris_id(
         self,
         company_name: str,
-    ) -> Company | None:
-        return await get_company_by_company_name(company_name)
+    ) -> str | None:
+        return get_company_by_company_name(company_name)
 
     def get_business_status(self, b_no_list: list[str]) -> str:
         return fetch_business_status(b_no_list)

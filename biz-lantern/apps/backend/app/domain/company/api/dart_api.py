@@ -1,4 +1,4 @@
-import requests
+import https
 
 from app.common.config import settings
 from app.domain.company.api.nts_api import is_operating_business
@@ -13,7 +13,7 @@ def get_company_overview(corp_code: str) -> dict:
         "crtfc_key": settings.dart_api_key,
         "corp_code": corp_code,
     }
-    response = requests.get(DART_COMPANY_URL, params=params)
+    response = https.get(DART_COMPANY_URL, params=params)
     response.raise_for_status()
 
     data = response.json()
