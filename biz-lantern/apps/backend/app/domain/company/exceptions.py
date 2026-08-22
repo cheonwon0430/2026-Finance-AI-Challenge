@@ -17,7 +17,8 @@ class AmbiguousCompanyNameError(Exception):
     candidates 에 후보를 그대로 담아 호출자가 참고하게 한다.
     """
 
-    def __init__(self, company_name: str, candidates: list[dict]):
+    def __init__(self, company_name: str, candidates: list[dict]) -> None:
+        """기업명과 후보 목록을 저장하고 오류 메시지를 구성한다."""
         self.company_name = company_name
         self.candidates = candidates
         super().__init__(
