@@ -82,7 +82,13 @@ class CompanyService:
         if isinstance(info, dict):
             info = [info]
 
-        return info
+        if not isinstance(info, list):
+            logger.warning("KIPRIS 응답의 %s 값이 예상과 다른 타입임: %r", key, type(info))
+            return []
+
+        # 리스트 안에 dict 가 아닌 값(예: 빈 XML 태그가 None 으로 온 경우)이 섞여 있어도
+        # 그 항목만 걸러내고 나머지는 정상 처리한다.
+        return [entry for entry in info if isinstance(entry, dict)]
 
     async def _fetch_administrative_history(self, app_number: str) -> list[dict] | None:
         """출원번호 하나의 행정이력을 조회한다.

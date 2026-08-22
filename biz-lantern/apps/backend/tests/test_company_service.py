@@ -123,6 +123,62 @@ async def test_get_company_patents_는_행정이력_조회가_실패해도_나�
 
 
 @pytest.mark.asyncio
+async def test_get_company_patents_는_비정상적인_kipris_응답구조에서도_빈_목록을_반환한다(monkeypatch):
+    monkeypatch.setattr(
+        "app.domain.company.service.get_company_by_company_name",
+        lambda company_name: "이건 JSON 이 아니다",
+    )
+
+    service = CompanyService(None)
+
+    result = await service.get_company_patents("핀샷")
+
+    assert result == {"count": 0, "items": []}
+
+
+@pytest.mark.asyncio
+async def test_get_company_patents_는_PatentUtilityInfo가_문자열이어도_빈_목록을_반환한다(monkeypatch):
+    raw = _patents_json("없음")
+    monkeypatch.setattr(
+        "app.domain.company.service.get_company_by_company_name",
+        lambda company_name: raw,
+    )
+
+    service = CompanyService(None)
+
+    result = await service.get_company_patents("핀샷")
+
+    assert result == {"count": 0, "items": []}
+
+
+@pytest.mark.asyncio
+async def test_get_company_patents_는_리스트_안에_None이_섞여있어도_해당_항목만_건너뛴다(monkeypatch):
+    patent = {
+        "ApplicationNumber": "1020200012345",
+        "InventionName": "테스트 발명",
+        "Applicant": "핀샷",
+        "ApplicationDate": "20200101",
+        "RegistrationStatus": "등록",
+    }
+    raw = _patents_json([patent, None])
+    monkeypatch.setattr(
+        "app.domain.company.service.get_company_by_company_name",
+        lambda company_name: raw,
+    )
+    monkeypatch.setattr(
+        "app.domain.company.service.get_company_by_application_number",
+        lambda app_number: None,
+    )
+
+    service = CompanyService(None)
+
+    result = await service.get_company_patents("핀샷")
+
+    assert result["count"] == 1
+    assert result["items"][0]["application_number"] == "1020200012345"
+
+
+@pytest.mark.asyncio
 async def test_run_company_pipeline_은_매칭이_없으면_CompanyNotFoundError를_올린다(monkeypatch):
     async def fake_search_by_name(company_name):
         return []
