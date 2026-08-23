@@ -1,33 +1,24 @@
-import { useSearchParams } from 'react-router';
+import { useSearchParams } from "react-router";
+import { companyQueries } from "@/entities/company";
+import { useQuery } from "@tanstack/react-query";
 
-import {
-  companyQueries,
-  type CompanyDTO,
-} from '@/entities/company';
-import { useQuery } from '@tanstack/react-query';
-
-import { CompanySearchForm } from '@/features/company-search';
+import { CompanySearchForm } from "@/features/company-search";
+import { CompanySummary } from "./CompanySummary";
 
 export function CompanySearchPage() {
   const [searchParams, setSearchParams] = useSearchParams();
 
-  const query = searchParams.get('query') ?? '';
-  const page = Number(searchParams.get('page') ?? '1');
+  const companyName = searchParams.get("query") ?? "";
 
+  // 회사명이 곧 GET /companies/{companyName} 의 입력값이다. companyId 를
+  // 미리 확보할 방법이 없으므로(DB 미적재) 검색어를 그대로 조회에 쓴다.
   const { data, isPending, isError } = useQuery({
-    ...companyQueries.list({
-      query,
-      page,
-      size: 10,
-    }),
-    enabled: query.length > 0,
+    ...companyQueries.detail(companyName),
+    enabled: companyName.length > 0,
   });
 
   const handleSearch = (nextQuery: string) => {
-    setSearchParams({
-      query: nextQuery,
-      page: '1',
-    });
+    setSearchParams({ query: nextQuery });
   };
 
   return (
@@ -36,45 +27,27 @@ export function CompanySearchPage() {
 
       <CompanySearchForm onSearch={handleSearch} />
 
-      {!query && (
+      {!companyName && <p className="mt-8">분석할 기업을 검색하세요.</p>}
+
+      {companyName && isError && (
         <p className="mt-8">
-          분석할 기업을 검색하세요.
+          '{companyName}' 기업을 조회하지 못했습니다.
         </p>
       )}
 
-      {isPending && (
-        <p className="mt-8">기업을 검색하고 있습니다.</p>
-      )}
+      {companyName && !isError && (
+        <div className="mt-8">
+          {data && (
+            <h2 className="mb-4 text-2xl font-bold">
+              {data.data.company_name}
+            </h2>
+          )}
 
-      {isError && (
-        <p className="mt-8">
-          기업 검색에 실패했습니다.
-        </p>
-      )}
-
-      {data && (
-        <div className="mt-8 space-y-3">
-          {data.data.content.map((company: CompanyDTO) => (
-            <button
-              key={company.id}
-              type="button"
-              className="block w-full rounded-md border p-4 text-left"
-            //   window.location.href는 최종 구현에서는 React Router navigation으로 바꾼다.
-              onClick={() => {
-                window.location.href = `/companies/${company.id}`;
-              }}
-            >
-              <strong>{company.name}</strong>
-
-              <div className="mt-1 text-sm">
-                {company.industry ?? '업종 정보 없음'}
-              </div>
-
-              <div className="text-sm">
-                설립 {company.foundedAt ?? '-'}
-              </div>
-            </button>
-          ))}
+          <CompanySummary
+            documentMarkdown={data?.data.document_markdown}
+            isDocumentLoading={isPending}
+            isDocumentError={isError}
+          />
         </div>
       )}
     </main>

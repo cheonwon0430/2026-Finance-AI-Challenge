@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+from pathlib import Path
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -199,6 +200,24 @@ class CompanyService:
                 f"파이프라인 실행 실패: corp_code={corp_code}"
             ) from error
 
+    @staticmethod
+    def _read_document_markdown(paths: dict[str, str]) -> str | None:
+        """pipeline 이 이미 저장해 둔 paths.document_clean_md 를 읽어 내용을 돌려준다.
+
+        감사보고서가 없는 회사는 애초에 pipeline 이 이 경로를 만들지 않으므로
+        키가 없거나 파일이 없는 건 오류가 아니라 정상적으로 있을 수 있는 상황이다.
+        """
+        md_path = paths.get("document_clean_md")
+        if not md_path:
+            return None
+
+        path = Path(md_path)
+        if not path.exists():
+            logger.warning("document_clean_md 파일을 찾을 수 없음: %s", md_path)
+            return None
+
+        return path.read_text(encoding="utf-8")
+
     async def get_company_overview(self, company_name: str) -> dict:
         """기업명 하나로 특허(+행정이력)와 수집 파이프라인 결과를 함께 조회한다.
 
@@ -209,7 +228,10 @@ class CompanyService:
             company_name: 조회할 기업명.
 
         Returns:
-            {"company_name": str, "patents": dict, "pipeline": dict}.
+            {"company_name": str, "patents": dict, "pipeline": dict,
+            "document_markdown": str | None}. document_markdown 은
+            pipeline_result["paths"]["document_clean_md"] 이 가리키는, 이미
+            존재하는 마크다운 파일의 내용을 그대로 읽은 것이다.
 
         Raises:
             CompanyNotFoundError, AmbiguousCompanyNameError, ExternalAPIError:
@@ -227,8 +249,11 @@ class CompanyService:
                 f"전체 조회 시간 초과({OVERVIEW_TIMEOUT_SECONDS}초): company_name={company_name}"
             ) from error
 
+        document_markdown = self._read_document_markdown(pipeline_result.get("paths", {}))
+
         return {
             "company_name": company_name,
             "patents": patents,
             "pipeline": pipeline_result,
+            "document_markdown": document_markdown,
         }

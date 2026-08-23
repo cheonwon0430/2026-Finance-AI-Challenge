@@ -5,10 +5,10 @@ import { getCompanies, getCompany, type CompanySearchParams } from "./index";
 export const companyQueries = {
   all: () => ["company"] as const,
 
-  detail: (companyId: number) =>
+  detail: (companyName: string) =>
     queryOptions({
-      queryKey: [...companyQueries.all(), "detail", companyId],
-      queryFn: () => getCompany(companyId),
+      queryKey: [...companyQueries.all(), "detail", companyName],
+      queryFn: () => getCompany(companyName),
     }),
 
   list: (params: CompanySearchParams) =>

@@ -341,7 +341,7 @@ class CollectResult(TypedDict):
     nts_operating: bool | None   # 진위확인+상태조회 통과 여부. 확인 못 했으면 None
     nts_error: str | None
     audit_report: dict | None    # 선택한 F001 1건의 메타
-    document: dict | None        # document_clean 결과
+    # document: dict | None        # document_clean 결과
     paths: dict[str, str]        # 저장한 파일 경로
     steps: list[Progress]        # 단계별 진행·실패 기록
 
@@ -387,7 +387,7 @@ def collect(
         "nts_operating": nts_operating,
         "nts_error": nts_error,
         "audit_report": audit_report,
-        "document": document,
+        # "document": document,
         "paths": paths,
         "steps": report.steps,
     }

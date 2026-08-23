@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import {
   BrowserRouter,
   Navigate,
@@ -12,40 +13,44 @@ import {
   ReportPage,
 } from '@/pages';
 
+const queryClient = new QueryClient();
+
 export default function App() {
   return (
-    <BrowserRouter>
-      <Routes>
-        <Route
-          path="/"
-          element={<Navigate to="/companies" replace />}
-        />
+    <QueryClientProvider client={queryClient}>
+      <BrowserRouter>
+        <Routes>
+          <Route
+            path="/"
+            element={<Navigate to="/companies" replace />}
+          />
 
-        <Route
-          path="/health"
-          element={<HealthPage />}
-        />
+          <Route
+            path="/health"
+            element={<HealthPage />}
+          />
 
-        <Route
-          path="/companies"
-          element={<CompanySearchPage />}
-        />
+          <Route
+            path="/companies"
+            element={<CompanySearchPage />}
+          />
 
-        <Route
-          path="/companies/:companyId"
-          element={<CompanyDetailPage />}
-        />
+          <Route
+            path="/companies/:companyId"
+            element={<CompanyDetailPage />}
+          />
 
-        <Route
-          path="/companies/:companyId/report"
-          element={<ReportPage />}
-        />
+          <Route
+            path="/companies/:companyId/report"
+            element={<ReportPage />}
+          />
 
-        <Route
-          path="*"
-          element={<Navigate to="/companies" replace />}
-        />
-      </Routes>
-    </BrowserRouter>
+          <Route
+            path="*"
+            element={<Navigate to="/companies" replace />}
+          />
+        </Routes>
+      </BrowserRouter>
+    </QueryClientProvider>
   );
 }
