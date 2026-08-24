@@ -1,13 +1,10 @@
 import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 
-import {
-  sendChatMessage,
-  type ChatbotSummary,
-} from "../api";
+import { sendChatMessage, type ChatbotSummary } from "../api";
 
 // 아이콘 라이브러리(lucide-react 등)를 사용 중이라면 아래 아이콘을 활용하세요.
-// import { MessageCircle, X } from "lucide-react";
+import { MessageCircle, X } from "lucide-react";
 
 type ChatMessage =
   | {
@@ -79,9 +76,7 @@ export function ChatbotWidget() {
             role: "assistant",
             content:
               "뉴스를 조회하는 중 문제가 발생했습니다." +
-              (data.errors.length > 0
-                ? `\n\n${data.errors.join("\n")}`
-                : ""),
+              (data.errors.length > 0 ? `\n\n${data.errors.join("\n")}` : ""),
           },
         ]);
 
@@ -119,11 +114,9 @@ export function ChatbotWidget() {
   return (
     // z-50을 주어 다른 페이지 요소들보다 항상 위에 뜨게 합니다.
     <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end">
-      
       {/* 1. 채팅창 영역 (열렸을 때만 렌더링) */}
       {isOpen && (
         <div className="mb-4 flex h-[450px] w-[320px] flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl transition-all sm:h-[500px] sm:w-[360px]">
-          
           {/* 채팅창 헤더 */}
           <div className="flex items-center justify-between bg-blue-600 px-4 py-3 text-white">
             <h3 className="font-semibold">AI 어시스턴트</h3>
@@ -133,8 +126,8 @@ export function ChatbotWidget() {
               className="rounded-full p-1 transition-colors hover:bg-blue-700"
               aria-label="닫기"
             >
-              {/* <X size={20} /> */}
-              <span className="text-xl leading-none">×</span>
+              <X size={20} />
+              {/* <span className="text-xl leading-none">×</span> */}
             </button>
           </div>
 
@@ -171,95 +164,88 @@ export function ChatbotWidget() {
                         </p>
 
                         {/* 기사 요약 */}
-                        {message.summaries &&
-                          message.summaries.length > 0 && (
-                            <div className="mt-4 space-y-4">
-                              {message.summaries.map(
-                                (summary, index) => (
-                                  <article
-                                    key={summary.summary_id}
-                                    className="rounded-lg border border-gray-200 bg-white p-3"
-                                  >
-                                    {/* 기사 번호 + 제목 */}
-                                    <h4 className="font-semibold leading-5">
-                                      📰 {index + 1}. {summary.title}
-                                    </h4>
+                        {message.summaries && message.summaries.length > 0 && (
+                          <div className="mt-4 space-y-4">
+                            {message.summaries.map((summary, index) => (
+                              <article
+                                key={summary.summary_id}
+                                className="rounded-lg border border-gray-200 bg-white p-3"
+                              >
+                                {/* 기사 번호 + 제목 */}
+                                <h4 className="font-semibold leading-5">
+                                  📰 {index + 1}. {summary.title}
+                                </h4>
 
-                                    {/* 기사 요약 */}
-                                    <p className="mt-3 whitespace-pre-wrap leading-6 text-gray-700">
-                                      {summary.summary}
+                                {/* 기사 요약 */}
+                                <p className="mt-3 whitespace-pre-wrap leading-6 text-gray-700">
+                                  {summary.summary}
+                                </p>
+
+                                {/* 출처 */}
+                                {summary.sources.length > 0 && (
+                                  <div className="mt-4 border-t border-gray-100 pt-3">
+                                    <p className="mb-2 text-xs font-semibold text-gray-500">
+                                      출처
                                     </p>
 
-                                    {/* 출처 */}
-                                    {summary.sources.length > 0 && (
-                                      <div className="mt-4 border-t border-gray-100 pt-3">
-                                        <p className="mb-2 text-xs font-semibold text-gray-500">
-                                          출처
-                                        </p>
+                                    <div className="space-y-2">
+                                      {summary.sources.map((source) => (
+                                        <div
+                                          key={`${summary.summary_id}-${source.article_id}-${source.url}`}
+                                          className="text-xs"
+                                        >
+                                          <div className="flex items-center gap-1">
+                                            <span className="font-medium text-gray-700">
+                                              {source.role === "primary"
+                                                ? "주요 출처"
+                                                : "관련 출처"}
+                                            </span>
 
-                                        <div className="space-y-2">
-                                          {summary.sources.map(
-                                            (source) => (
-                                              <div
-                                                key={`${summary.summary_id}-${source.article_id}-${source.url}`}
-                                                className="text-xs"
-                                              >
-                                                <div className="flex items-center gap-1">
-                                                  <span className="font-medium text-gray-700">
-                                                    {source.role ===
-                                                    "primary"
-                                                      ? "주요 출처"
-                                                      : "관련 출처"}
-                                                  </span>
+                                            <span className="text-gray-400">
+                                              ·
+                                            </span>
 
-                                                  <span className="text-gray-400">
-                                                    ·
-                                                  </span>
+                                            <span className="text-gray-600">
+                                              {source.site}
+                                            </span>
 
-                                                  <span className="text-gray-600">
-                                                    {source.site}
-                                                  </span>
+                                            <span className="text-gray-400">
+                                              ·
+                                            </span>
 
-                                                  <span className="text-gray-400">
-                                                    ·
-                                                  </span>
+                                            <span className="text-gray-500">
+                                              {source.published_on ??
+                                                "날짜 없음"}
+                                            </span>
+                                          </div>
 
-                                                  <span className="text-gray-500">
-                                                    {source.published_on ??
-                                                      "날짜 없음"}
-                                                  </span>
-                                                </div>
-
-                                                {source.url && (
-                                                  <a
-                                                    href={source.url}
-                                                    target="_blank"
-                                                    rel="noreferrer"
-                                                    className="mt-1 inline-block text-blue-600 hover:underline"
-                                                  >
-                                                    원문 보기 ↗
-                                                  </a>
-                                                )}
-                                              </div>
-                                            ),
+                                          {source.url && (
+                                            <a
+                                              href={source.url}
+                                              target="_blank"
+                                              rel="noreferrer"
+                                              className="mt-1 inline-block text-blue-600 hover:underline"
+                                            >
+                                              원문 보기 ↗
+                                            </a>
                                           )}
                                         </div>
-                                      </div>
-                                    )}
-                                  </article>
-                                ),
-                              )}
-                            </div>
-                          )}
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+                              </article>
+                            ))}
+                          </div>
+                        )}
 
                         {/* 뉴스 개수 */}
-                        {message.summaries &&
-                          message.summaries.length > 0 && (
-                            <p className="mt-4 text-xs text-gray-500">
-                              총 {message.summaries.length}건의
-                              뉴스를 확인했습니다.
-                            </p>
-                          )}
+                        {message.summaries && message.summaries.length > 0 && (
+                          <p className="mt-4 text-xs text-gray-500">
+                            총 {message.summaries.length}건의 뉴스를
+                            확인했습니다.
+                          </p>
+                        )}
                       </div>
                     )}
                   </div>
@@ -338,8 +324,8 @@ export function ChatbotWidget() {
           className="flex h-14 w-14 items-center justify-center rounded-full bg-blue-600 text-white shadow-lg transition-transform hover:scale-105 hover:bg-blue-700 active:scale-95"
           aria-label="챗봇 열기"
         >
-          {/* <MessageCircle size={28} /> */}
-          <span className="text-2xl">💬</span>
+          <MessageCircle size={28} />
+          {/* <span className="text-2xl">💬</span> */}
         </button>
       )}
     </div>
