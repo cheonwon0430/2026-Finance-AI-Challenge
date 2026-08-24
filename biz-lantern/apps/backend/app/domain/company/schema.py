@@ -30,4 +30,4 @@ class CompanyOverviewResponse(BaseModel):
     company_name: str
     patents: dict
     pipeline: dict
-    document_markdown: str | None = None
+    # document_markdown: str | None = None

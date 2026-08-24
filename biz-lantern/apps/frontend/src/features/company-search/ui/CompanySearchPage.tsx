@@ -27,7 +27,7 @@ export function CompanySearchPage() {
 
       <CompanySearchForm onSearch={handleSearch} />
 
-      {!companyName && <p className="mt-8">분석할 기업을 검색하세요.</p>}
+      {!companyName && <p className="mt-8">조회할 기업을 검색하세요.</p>}
 
       {companyName && isError && (
         <p className="mt-8">'{companyName}' 기업을 조회하지 못했습니다.</p>
@@ -42,9 +42,9 @@ export function CompanySearchPage() {
           )}
 
           <CompanySummary
-            documentMarkdown={data?.data.pipeline.document}
-            isDocumentLoading={isPending}
-            isDocumentError={isError}
+            overview={data?.data}
+            isOverviewLoading={isPending}
+            isOverviewError={isError}
           />
         </div>
       )}
