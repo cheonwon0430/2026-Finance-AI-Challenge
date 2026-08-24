@@ -1,0 +1,340 @@
+{
+  "api_info": {
+    "name": "공시검색 (목록)",
+    "endpoint": "https://opendart.fss.or.kr/api/list.json",
+    "method": "GET",
+    "params": {
+      "crtfc_key": "인증키(필수)",
+      "corp_code": "고유번호 8자리(선택)",
+      "bgn_de": "검색시작 접수일자 YYYYMMDD(선택)",
+      "end_de": "검색종료 접수일자 YYYYMMDD(선택)",
+      "pblntf_detail_ty": "공시상세유형 4자리 코드(선택) - F001=감사보고서, F005=감사보고서 미제출신고 등",
+      "page_count": "페이지당 건수 1~100(선택)"
+    }
+  },
+  "code": {
+    "fetch_disclosure_list": "def fetch_disclosure_list(\n    corp_code: str,\n    api_key: str,\n    pblntf_detail_ty: str = \"F001\",\n    bgn_de: str = \"20200101\",\n    end_de: str = \"20261231\",\n    page_count: int = 100,\n) -> dict:\n    \"\"\"공시검색 API. pblntf_detail_ty=F001은 감사보고서(외부감사관련).\"\"\"\n    url = (\n        \"https://opendart.fss.or.kr/api/list.json\"\n        f\"?crtfc_key={api_key}&corp_code={corp_code}\"\n        f\"&pblntf_detail_ty={pblntf_detail_ty}\"\n        f\"&bgn_de={bgn_de}&end_de={end_de}&page_count={page_count}\"\n    )\n    with urllib.request.urlopen(url) as resp:\n        return json.loads(resp.read().decode(\"utf-8\"))\n",
+    "check_audit_report_availability": "def check_audit_report_availability(corp_code: str, api_key: str) -> dict:\n    \"\"\"외감 대상 여부 판정: 기업개황(corp_cls)과 F001(감사보고서) 공시 존재 여부를 함께 확인.\"\"\"\n    overview = fetch_company_overview(corp_code, api_key)\n    disclosures = fetch_disclosure_list(corp_code, api_key, pblntf_detail_ty=\"F001\")\n\n    corp_cls = overview.get(\"corp_cls\")\n    is_unlisted = corp_cls == \"E\"  # E = 기타법인(비상장 외감법인 등)\n    has_audit_report = disclosures.get(\"status\") == \"000\" and bool(disclosures.get(\"list\"))\n\n    return {\n        \"corp_name\": overview.get(\"corp_name\"),\n        \"corp_cls\": corp_cls,\n        \"is_unlisted_audited_candidate\": is_unlisted,\n        \"audit_report_status\": disclosures.get(\"status\"),\n        \"audit_report_message\": disclosures.get(\"message\"),\n        \"has_audit_report\": has_audit_report,\n        \"audit_report_count\": len(disclosures.get(\"list\", [])),\n        \"audit_reports\": disclosures.get(\"list\", []),\n    }\n"
+  },
+  "usage_examples": {
+    "트래블월렛": {
+      "corp_code": "01726910",
+      "F001_감사보고서": {
+        "request": "list.json?corp_code=01726910&pblntf_detail_ty=F001",
+        "summary": {
+          "corp_name": "주식회사 트래블월렛",
+          "corp_cls": "E",
+          "is_unlisted_audited_candidate": true,
+          "audit_report_status": "000",
+          "audit_report_message": "정상",
+          "has_audit_report": true,
+          "audit_report_count": 4
+        },
+        "reports": [
+          {
+            "corp_code": "01726910",
+            "corp_name": "트래블월렛",
+            "stock_code": "",
+            "corp_cls": "E",
+            "report_nm": "[기재정정]감사보고서 (2025.12)",
+            "rcept_no": "20260508000263",
+            "flr_nm": "이촌회계법인",
+            "rcept_dt": "20260508",
+            "rm": ""
+          },
+          {
+            "corp_code": "01726910",
+            "corp_name": "트래블월렛",
+            "stock_code": "",
+            "corp_cls": "E",
+            "report_nm": "감사보고서 (2025.12)",
+            "rcept_no": "20260331000341",
+            "flr_nm": "이촌회계법인",
+            "rcept_dt": "20260331",
+            "rm": "정"
+          },
+          {
+            "corp_code": "01726910",
+            "corp_name": "트래블월렛",
+            "stock_code": "",
+            "corp_cls": "E",
+            "report_nm": "감사보고서 (2024.12)",
+            "rcept_no": "20250331001008",
+            "flr_nm": "이촌회계법인",
+            "rcept_dt": "20250331",
+            "rm": ""
+          },
+          {
+            "corp_code": "01726910",
+            "corp_name": "트래블월렛",
+            "stock_code": "",
+            "corp_cls": "E",
+            "report_nm": "감사보고서 (2023.12)",
+            "rcept_no": "20240328000348",
+            "flr_nm": "태성회계법인",
+            "rcept_dt": "20240328",
+            "rm": ""
+          }
+        ]
+      },
+      "F005_미제출신고": {
+        "request": "list.json?corp_code=01726910&pblntf_detail_ty=F005",
+        "status": "013",
+        "count": 0
+      }
+    },
+    "핀샷": {
+      "corp_code": "01836952",
+      "F001_감사보고서": {
+        "request": "list.json?corp_code=01836952&pblntf_detail_ty=F001",
+        "summary": {
+          "corp_name": "(주)핀샷 ",
+          "corp_cls": "E",
+          "is_unlisted_audited_candidate": true,
+          "audit_report_status": "000",
+          "audit_report_message": "정상",
+          "has_audit_report": true,
+          "audit_report_count": 2
+        },
+        "reports": [
+          {
+            "corp_code": "01836952",
+            "corp_name": "핀샷",
+            "stock_code": "",
+            "corp_cls": "E",
+            "report_nm": "감사보고서 (2025.12)",
+            "rcept_no": "20260414002654",
+            "flr_nm": "로엘회계법인",
+            "rcept_dt": "20260414",
+            "rm": ""
+          },
+          {
+            "corp_code": "01836952",
+            "corp_name": "핀샷",
+            "stock_code": "",
+            "corp_cls": "E",
+            "report_nm": "감사보고서 (2024.12)",
+            "rcept_no": "20250414000750",
+            "flr_nm": "로엘회계법인",
+            "rcept_dt": "20250414",
+            "rm": ""
+          }
+        ]
+      },
+      "F005_미제출신고": {
+        "request": "list.json?corp_code=01836952&pblntf_detail_ty=F005",
+        "status": "013",
+        "count": 0
+      }
+    },
+    "아이씨비": {
+      "corp_code": "01355572",
+      "F001_감사보고서": {
+        "request": "list.json?corp_code=01355572&pblntf_detail_ty=F001",
+        "summary": {
+          "corp_name": "(주)아이씨비",
+          "corp_cls": "E",
+          "is_unlisted_audited_candidate": true,
+          "audit_report_status": "000",
+          "audit_report_message": "정상",
+          "has_audit_report": true,
+          "audit_report_count": 7
+        },
+        "reports": [
+          {
+            "corp_code": "01355572",
+            "corp_name": "아이씨비",
+            "stock_code": "",
+            "corp_cls": "E",
+            "report_nm": "감사보고서 (2025.12)",
+            "rcept_no": "20260402000570",
+            "flr_nm": "이촌회계법인",
+            "rcept_dt": "20260402",
+            "rm": ""
+          },
+          {
+            "corp_code": "01355572",
+            "corp_name": "아이씨비",
+            "stock_code": "",
+            "corp_cls": "E",
+            "report_nm": "감사보고서 (2024.12)",
+            "rcept_no": "20250328000534",
+            "flr_nm": "이촌회계법인",
+            "rcept_dt": "20250328",
+            "rm": ""
+          },
+          {
+            "corp_code": "01355572",
+            "corp_name": "아이씨비",
+            "stock_code": "",
+            "corp_cls": "E",
+            "report_nm": "감사보고서 (2023.12)",
+            "rcept_no": "20240403000979",
+            "flr_nm": "이촌회계법인",
+            "rcept_dt": "20240403",
+            "rm": ""
+          },
+          {
+            "corp_code": "01355572",
+            "corp_name": "아이씨비",
+            "stock_code": "",
+            "corp_cls": "E",
+            "report_nm": "감사보고서 (2022.12)",
+            "rcept_no": "20230404001255",
+            "flr_nm": "이촌회계법인",
+            "rcept_dt": "20230404",
+            "rm": ""
+          },
+          {
+            "corp_code": "01355572",
+            "corp_name": "아이씨비",
+            "stock_code": "",
+            "corp_cls": "E",
+            "report_nm": "감사보고서 (2021.12)",
+            "rcept_no": "20220404000658",
+            "flr_nm": "이촌회계법인",
+            "rcept_dt": "20220404",
+            "rm": ""
+          },
+          {
+            "corp_code": "01355572",
+            "corp_name": "아이씨비",
+            "stock_code": "",
+            "corp_cls": "E",
+            "report_nm": "감사보고서 (2020.12)",
+            "rcept_no": "20210401000022",
+            "flr_nm": "이촌회계법인",
+            "rcept_dt": "20210401",
+            "rm": ""
+          },
+          {
+            "corp_code": "01355572",
+            "corp_name": "아이씨비",
+            "stock_code": "",
+            "corp_cls": "E",
+            "report_nm": "감사보고서 (2019.12)",
+            "rcept_no": "20200403000617",
+            "flr_nm": "이촌회계법인",
+            "rcept_dt": "20200403",
+            "rm": ""
+          }
+        ]
+      },
+      "F005_미제출신고": {
+        "request": "list.json?corp_code=01355572&pblntf_detail_ty=F005",
+        "status": "013",
+        "count": 0
+      }
+    },
+    "이롬넷": {
+      "corp_code": "01730658",
+      "F001_감사보고서": {
+        "request": "list.json?corp_code=01730658&pblntf_detail_ty=F001",
+        "summary": {
+          "corp_name": "주식회사 이롬넷",
+          "corp_cls": "E",
+          "is_unlisted_audited_candidate": true,
+          "audit_report_status": "000",
+          "audit_report_message": "정상",
+          "has_audit_report": true,
+          "audit_report_count": 3
+        },
+        "reports": [
+          {
+            "corp_code": "01730658",
+            "corp_name": "이롬넷",
+            "stock_code": "",
+            "corp_cls": "E",
+            "report_nm": "감사보고서 (2025.12)",
+            "rcept_no": "20260331000402",
+            "flr_nm": "안진회계법인",
+            "rcept_dt": "20260331",
+            "rm": ""
+          },
+          {
+            "corp_code": "01730658",
+            "corp_name": "이롬넷",
+            "stock_code": "",
+            "corp_cls": "E",
+            "report_nm": "감사보고서 (2024.12)",
+            "rcept_no": "20250328000422",
+            "flr_nm": "안진회계법인",
+            "rcept_dt": "20250328",
+            "rm": ""
+          },
+          {
+            "corp_code": "01730658",
+            "corp_name": "이롬넷",
+            "stock_code": "",
+            "corp_cls": "E",
+            "report_nm": "감사보고서 (2023.12)",
+            "rcept_no": "20240402000800",
+            "flr_nm": "안진회계법인",
+            "rcept_dt": "20240402",
+            "rm": ""
+          }
+        ]
+      },
+      "F005_미제출신고": {
+        "request": "list.json?corp_code=01730658&pblntf_detail_ty=F005",
+        "status": "013",
+        "count": 0
+      }
+    },
+    "센트비": {
+      "corp_code": "01685996",
+      "F001_감사보고서": {
+        "request": "list.json?corp_code=01685996&pblntf_detail_ty=F001",
+        "summary": {
+          "corp_name": "(주)센트비",
+          "corp_cls": "E",
+          "is_unlisted_audited_candidate": true,
+          "audit_report_status": "000",
+          "audit_report_message": "정상",
+          "has_audit_report": true,
+          "audit_report_count": 3
+        },
+        "reports": [
+          {
+            "corp_code": "01685996",
+            "corp_name": "센트비",
+            "stock_code": "",
+            "corp_cls": "E",
+            "report_nm": "감사보고서 (2025.12)",
+            "rcept_no": "20260331000944",
+            "flr_nm": "현대회계법인",
+            "rcept_dt": "20260331",
+            "rm": ""
+          },
+          {
+            "corp_code": "01685996",
+            "corp_name": "센트비",
+            "stock_code": "",
+            "corp_cls": "E",
+            "report_nm": "감사보고서 (2024.12)",
+            "rcept_no": "20250328000823",
+            "flr_nm": "현대회계법인",
+            "rcept_dt": "20250328",
+            "rm": ""
+          },
+          {
+            "corp_code": "01685996",
+            "corp_name": "센트비",
+            "stock_code": "",
+            "corp_cls": "E",
+            "report_nm": "감사보고서 (2023.12)",
+            "rcept_no": "20240401002078",
+            "flr_nm": "현대회계법인",
+            "rcept_dt": "20240401",
+            "rm": ""
+          }
+        ]
+      },
+      "F005_미제출신고": {
+        "request": "list.json?corp_code=01685996&pblntf_detail_ty=F005",
+        "status": "013",
+        "count": 0
+      }
+    }
+  }
+}

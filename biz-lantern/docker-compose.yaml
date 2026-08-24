@@ -1,0 +1,19 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg18 # Include pgvector, PostgreSQL
+    container_name: biz-lantern-postgres
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_DB: biz_lantern
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+
+    ports:
+      - "5432:5432"
+
+    volumes:
+      - postgres_data:/var/lib/postgresql
+
+volumes:
+  postgres_data:

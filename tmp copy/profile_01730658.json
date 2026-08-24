@@ -1,0 +1,56 @@
+{
+  "이롬넷": {
+    "corp_code": "01730658",
+    "basic_info": {
+      "corp_name": "주식회사 이롬넷",
+      "ceo_nm": "민윤재",
+      "adres": "서울특별시 강남구 테헤란로 414 10층 (대치동, 엘앤비타워)",
+      "bizr_no": "2718800518",
+      "jurir_no": "1101116131918",
+      "corp_cls": "E",
+      "induty_code": "66199",
+      "est_dt": "20160726",
+      "acc_mt": "12",
+      "hm_url": "www.eromnet.com/"
+    },
+    "electronic_finance_license": {
+      "registered_name": "㈜이롬넷",
+      "registration_date": "2019-07-11",
+      "licenses": [
+        "전자지급결제 대행업(PG)"
+      ]
+    },
+    "audit_report": {
+      "has_audit_report": true,
+      "audit_report_count": 3,
+      "latest_rcept_no": "20260331000402"
+    },
+    "risk_signals": {
+      "f005_non_submission_count": 0,
+      "nts_business_status": {
+        "b_stt": "계속사업자",
+        "b_stt_cd": "01",
+        "tax_type": "부가가치세 일반과세자",
+        "end_dt": ""
+      }
+    },
+    "financials": {
+      "revenue": 12692601026,
+      "operating_income": -2060302045,
+      "net_income": -7726317950,
+      "operating_cash_flow": -9375974459,
+      "total_assets": 12754828604,
+      "total_liabilities": 16098644097,
+      "total_equity": -3343815493,
+      "unit": "KRW",
+      "fiscal_periods": [
+        "제 10(당) 기",
+        "제 9(전) 기"
+      ]
+    },
+    "notes": {
+      "company_overview_and_shareholders": "1. 회사의 개요주식회사 이롬넷(이하 '당사')은 2016년 7월 26일에 설립되어 전자금융업(전자지급결제대행업)을 주요사업으로 영위하고 있으며, 당사는 서울특별시 강남구 테헤란로 414에 위치하고 있습니다. 당사는 그 동안 수 차례의 유ㆍ무상증자 등을 통하여 당기말 현재의 자본금은 보통주3,017,525천원, 우선주 1,496,432천원이며, 보고기간종료일 현재 주요 주주현황은 다음과 같습니다.\n주 주 명\n소유주식수(주)\n지 분 율\n보통주\n우선주\n민윤재\n4,944,680\n-\n54.77%\n조지영\n431,100\n-\n4.78%\n김동재\n332,000\n-\n3.68%\n윤경원\n215,550\n-\n2.39%\n정현정\n111,720\n-\n1.24%\n중소기업은행\n-\n947,827\n10.50%\n이노폴리스 2019창업초기 투자조합\n-\n678,580\n7.52%\n비에이피 제2호 퍼스트펭귄 투자조합\n-\n678,580\n7.52%\n엘앤에스 SDC청년창업 투자조합\n-\n483,380\n5.35%\n키움증권주식회사\n-\n204,498\n2.27%\n합 계\n6,035,050\n2,992,865\n100.00%",
+      "related_party_transactions": "11. 특수관계자 공시 (1) 특수관계자 등의 현황\n구  분\n특수관계자명\n지분율\n종속기업\nEROMNET SINGAPORE PTE. LTD.\n100%\nEROMNET HONG KONG LTD.\n100%\n(2) 당기 및 전기 중 당사와 특수관계자와의 주요 거래내용은 다음과 같습니다.\n(당기)\n(단위: 천원)\n구  분\n매출 등\n매입 등\n매  출\n기타수익\n매  입\n기타비용\n(종속기업)\nEROMNET SINGAPORE PTE. LTD.\n-\n-\n-\n73,415\n(전기)\n(단위: 천원)\n구  분\n매출 등\n매입 등\n매  출\n기타수익\n매  입\n기타비용\n(종속기업)\nEROMNET SINGAPORE PTE. LTD.\n-\n-\n-\n88,043\n(3) 당기말 및 전기말 현재 특수관계자에 대한 주요 채권ㆍ채무의 내역은 다음과  같습니다.\n(당기말)\n(단위: 천원)\n구  분\n채  권\n채  무\n대여금\n기타채권(*)\n매입채무\n기타채무\n(종속기업)\nEROMNET SINGAPORE PTE. LTD.\n-\n1,368,410\n-\n-\nEROMNET HONG KONG LTD.\n15,407\n-\n-\n-\n소  계\n15,407\n1,368,410\n-\n-\n(*) 거래 계약서상 최소 지급액 조건에 따른 선급금 내역으로, 차기 중 보통주로 출자전환될 예정입니다.(주석 21).\n(전기말)\n(단위: 천원)\n구  분\n채  권\n채  무\n대여금\n기타채권\n매입채무\n기타채무\n(종속기업)\nEROMNET SINGAPORE PTE. LTD.\n-\n918,314\n-\n-\nEROMNET HONG KONG LTD.\n11,557\n-\n-\n-\n소  계\n11,557\n918,314\n-\n-\n(4) 당기 및 전기 중 특수관계자에 대한 중요한 자금거래내역은 다음과 같습니다.\n(당기말)\n(단위: 천원)\n구  분\n자금대여거래\n대여\n회수\n(종속기업)\nEROMNET SINGAPORE PTE. LTD.(*)\n479,772\n479,772\nEROMNET HONG KONG LTD.\n4,200\n-\n소  계\n483,972\n479,772\n(기타의 특수관계자)\n대표이사\n400,000\n400,000\n합  계\n883,972\n879,772\n(*) 당기 중 대여 후 동 대여금을 출자전환하였습니다.\n(전기말)\n(단위: 천원)\n구  분\n자금대여거래\n대여\n회수\n(종속기업)\nEROMNET HONG KONG LTD.\n4,979\n-"
+    }
+  }
+}

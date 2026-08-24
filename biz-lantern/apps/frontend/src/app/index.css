@@ -1,0 +1,175 @@
+@import "tailwindcss";
+
+/*
+ * 기본 UI 폰트. index.html 에서 불러오는 Noto Sans KR(variable font)을
+ * Tailwind의 font-sans 유틸리티(및 Preflight의 기본 body 폰트)에 연결한다.
+ * font-medium/font-semibold/font-bold 등 weight 유틸리티는 그대로 동작한다.
+ */
+@theme {
+  --font-sans: "Noto Sans KR", ui-sans-serif, system-ui, sans-serif,
+    "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol",
+    "Noto Color Emoji";
+}
+
+body {
+  font-family: "Noto Sans KR", sans-serif;
+  font-optical-sizing: auto;
+  font-style: normal;
+}
+
+/*
+ * design/material-theme.json 의 "light" 스킴을 그대로 옮긴 디자인 토큰.
+ * shadcn/ui 컴포넌트 및 기존 코드의 bg-primary, text-muted-foreground 등
+ * 시맨틱 유틸리티 클래스가 이 값을 사용한다.
+ */
+:root {
+  --radius: 0.625rem;
+
+  --background: #f9faef;
+  --foreground: #1a1c16;
+
+  --card: #ffffff;
+  --card-foreground: #1a1c16;
+
+  --popover: #ffffff;
+  --popover-foreground: #1a1c16;
+
+  --primary: #4c662b;
+  --primary-foreground: #ffffff;
+  --primary-container: #cdeda3;
+  --primary-container-foreground: #354e16;
+
+  --secondary: #dce7c8;
+  --secondary-foreground: #404a33;
+
+  --tertiary: #386663;
+  --tertiary-foreground: #ffffff;
+  --tertiary-container: #bcece7;
+  --tertiary-container-foreground: #1f4e4b;
+
+  --muted: #e8e9de;
+  --muted-foreground: #44483d;
+
+  --accent: #bcece7;
+  --accent-foreground: #1f4e4b;
+
+  --destructive: #ba1a1a;
+  --destructive-foreground: #ffffff;
+  --destructive-container: #ffdad6;
+  --destructive-container-foreground: #93000a;
+
+  --border: #c5c8ba;
+  --input: #c5c8ba;
+  --ring: #4c662b;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-container: var(--primary-container);
+  --color-primary-container-foreground: var(--primary-container-foreground);
+
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+
+  --color-tertiary: var(--tertiary);
+  --color-tertiary-foreground: var(--tertiary-foreground);
+  --color-tertiary-container: var(--tertiary-container);
+  --color-tertiary-container-foreground: var(--tertiary-container-foreground);
+
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-destructive-container: var(--destructive-container);
+  --color-destructive-container-foreground: var(--destructive-container-foreground);
+
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+.noto-sans-kr-400 {
+  font-family: "Noto Sans KR", sans-serif;
+  font-optical-sizing: auto;
+  font-weight: 400;
+  font-style: normal;
+}
+
+.markdown-body h1 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin: 1.5rem 0 0.75rem;
+}
+
+.markdown-body h2 {
+  font-size: 1.25rem;
+  font-weight: 700;
+  margin: 1.25rem 0 0.5rem;
+}
+
+.markdown-body h3 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin: 1rem 0 0.5rem;
+}
+
+.markdown-body p {
+  margin: 0.5rem 0;
+  line-height: 1.6;
+}
+
+.markdown-body ul,
+.markdown-body ol {
+  margin: 0.5rem 0;
+  padding-left: 1.5rem;
+}
+
+.markdown-body ul {
+  list-style: disc;
+}
+
+.markdown-body ol {
+  list-style: decimal;
+}
+
+.markdown-body strong {
+  font-weight: 700;
+}
+
+.markdown-body table {
+  border-collapse: collapse;
+  margin: 0.75rem 0;
+  width: 100%;
+  font-size: 0.875rem;
+}
+
+.markdown-body th,
+.markdown-body td {
+  border: 1px solid var(--border, #d4d4d8);
+  padding: 0.4rem 0.6rem;
+  text-align: left;
+}
+
+.markdown-body th {
+  background-color: var(--muted, #f4f4f5);
+  font-weight: 600;
+}
