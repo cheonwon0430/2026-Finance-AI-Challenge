@@ -216,6 +216,7 @@ def _verify_nts(company: dict, report: _Reporter) -> tuple[bool | None, str | No
             ceo_nm=company["ceo_nm"],
             est_dt=company["est_dt"],
         )
+        # print(f"operating : {operating}")
     except (
         Exception
     ) as error:  # noqa: BLE001 - 국세청 서버는 자주 죽는다. 무엇이 터지든 수집은 계속한다
@@ -402,7 +403,7 @@ def collect(
     # print(f"[Pipeline] _fetch_company 결과: {company}")
 
     nts_operating, nts_error = _verify_nts(company, report)
-    # print(f"[Pipeline] _verify_nts 결과: {(nts_operating, nts_error)}")
+    print(f"[Pipeline] _verify_nts 결과: {(nts_operating, nts_error)}")
 
     audit_report = _find_audit_report(corp_code, report, paths)
     # print(f"[Pipeline] _find_audit_report 결과: {audit_report}")

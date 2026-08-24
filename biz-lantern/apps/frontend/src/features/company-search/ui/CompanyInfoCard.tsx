@@ -1,41 +1,60 @@
-import { Building2, ExternalLink } from 'lucide-react';
+import { Building2, ExternalLink } from "lucide-react";
 
-import type { Company } from '@/entities/company';
-import { corpClsLabel, formatDate } from '@/entities/company';
-import { Card, CardContent, CardHeader, CardTitle } from '@/shared/ui';
+import type { Company } from "@/entities/company";
+import { corpClsLabel, formatDate } from "@/entities/company";
+import { Card, CardContent, CardHeader, CardTitle } from "@/shared/ui";
 
 interface InfoField {
   label: string;
   value: string | null;
   href?: string;
 }
+// URL 프로토콜 보정 헬퍼 함수
+function formatUrl(url?: string | null): string | undefined {
+  if (!url) return undefined;
+
+  const trimmedUrl = url.trim();
+  if (!trimmedUrl) return undefined;
+
+  if (trimmedUrl.startsWith("http://")) {
+    return trimmedUrl.replace(/^http:\/\//i, "https://");
+  }
+  if (!trimmedUrl.startsWith("https://")) {
+    return `https://${trimmedUrl}`;
+  }
+
+  return trimmedUrl;
+}
 
 function buildInfoFields(company: Company): InfoField[] {
+  const formattedHmUrl = formatUrl(company.hm_url);
+  const formattedIrUrl = formatUrl(company.ir_url);
+
   return [
-    { label: '기업명', value: company.corp_name.trim() || null },
-    { label: '영문 기업명', value: company.corp_name_eng || null },
-    { label: '대표자', value: company.ceo_nm || null },
-    { label: '법인등록번호', value: company.jurir_no || null },
-    { label: '사업자등록번호', value: company.bizr_no || null },
-    { label: '기업구분', value: corpClsLabel(company.corp_cls) },
-    { label: '산업분류코드', value: company.induty_code || null },
-    { label: '설립일', value: formatDate(company.est_dt) },
-    { label: '결산월', value: company.acc_mt ? `${company.acc_mt}월` : null },
-    { label: '주소', value: company.adres || null },
-    { label: '전화번호', value: company.phn_no || null },
-    { label: '팩스번호', value: company.fax_no || null },
+    { label: "기업명", value: company.corp_name.trim() || null },
+    { label: "영문 기업명", value: company.corp_name_eng || null },
+    { label: "대표자", value: company.ceo_nm || null },
+    { label: "법인등록번호", value: company.jurir_no || null },
+    { label: "사업자등록번호", value: company.bizr_no || null },
+    { label: "기업구분", value: corpClsLabel(company.corp_cls) },
+    { label: "산업분류코드", value: company.induty_code || null },
+    { label: "설립일", value: formatDate(company.est_dt) },
+    { label: "결산월", value: company.acc_mt ? `${company.acc_mt}월` : null },
+    { label: "주소", value: company.adres || null },
+    { label: "전화번호", value: company.phn_no || null },
+    { label: "팩스번호", value: company.fax_no || null },
     {
-      label: '홈페이지',
-      value: company.hm_url || null,
-      href: company.hm_url || undefined,
+      label: "홈페이지",
+      value: formattedHmUrl || null,
+      href: formattedHmUrl,
     },
     {
-      label: 'IR 페이지',
-      value: company.ir_url || null,
-      href: company.ir_url || undefined,
+      label: "IR 페이지",
+      value: formattedIrUrl || null,
+      href: formattedIrUrl,
     },
-    { label: '종목명', value: company.stock_name || null },
-    { label: '주식코드', value: company.stock_code || null },
+    { label: "종목명", value: company.stock_name || null },
+    { label: "주식코드", value: company.stock_code || null },
   ];
 }
 

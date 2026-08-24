@@ -4,6 +4,7 @@
 DART 기업개황에서 확보한 bizr_no(사업자등록번호, 10자리 숫자)를 넣어
 폐업·휴업 여부를 확인하거나(상태조회), 대표자명·개업일자까지 대조한다(진위확인).
 """
+
 import json
 from urllib.parse import unquote
 

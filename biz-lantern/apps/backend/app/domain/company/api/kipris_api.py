@@ -121,3 +121,14 @@ def get_company_by_application_number(app_number: str):
         print(f"API 요청 오류: {e}")
     except Exception as e:
         print(f"데이터 파싱 오류: {e}")
+
+
+# if __name__ == "__main__":
+#     import sys
+
+#     # CLI 입력값이 있으면 첫 번째 인자를, 없으면 기본값으로 "트래블월렛" 사용
+#     target_company = sys.argv[1] if len(sys.argv) > 1 else "트래블월렛"
+
+#     print(f"=== '{target_company}' 특허/실용정보 조회 중... ===")
+#     company_result = get_company_by_company_name(target_company)
+#     print(company_result)
