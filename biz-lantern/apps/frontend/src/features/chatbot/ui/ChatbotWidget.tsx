@@ -116,12 +116,7 @@ export function ChatbotWidget() {
     <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end">
       {/* 1. 채팅창 영역 (열렸을 때만 렌더링) */}
       {isOpen && (
-<<<<<<< HEAD
         <div className="mb-4 flex h-[450px] w-[320px] flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl transition-all sm:h-[500px] sm:w-[360px]">
-=======
-        <div className="mb-4 flex h-[1000px] w-[2000px] flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl transition-all sm:h-[550px] sm:w-[500px]">
-
->>>>>>> 1c448943e83b71cfdfd7c4a3bf5ebde5dfb06cb6
           {/* 채팅창 헤더 */}
           <div className="flex items-center justify-between bg-blue-600 px-4 py-3 text-white">
             <h3 className="font-semibold">최근 제품 뉴스 분석 AI</h3>
