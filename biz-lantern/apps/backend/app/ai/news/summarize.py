@@ -27,7 +27,7 @@ import re
 from typing import TypedDict
 
 from app.ai.news.llm_client import LLMError
-from app.ai.news.signals import source_of
+from app.ai.news.signals import published_on, source_of
 from app.ai.news.state import ExtractedItem, RankedItem, Source, SummaryItem
 
 # ---------------------------------------------------------------------------
@@ -135,7 +135,17 @@ def collect_sources(
 
     related 는 검색 결과에 이미 있는 url·제목을 옮겨 붙일 뿐이다. 요약의 근거가 아니다.
     duplicate_group 이 0 인 단독 건에는 related 가 붙지 않는다.
+
+    발행일은 primary·related 모두 ranked 에서 읽는다. 추출된 기사도 전부 selected_items()
+    를 거친 RankedItem 이라 반드시 여기 있다 - 날짜의 출처를 한 곳으로 유지하려는 것이다.
+
+    여기서 ISO 로 바꿔 담는다. 찍는 쪽에 미루면 CLI 와 라우터가 각각 변환하게 된다.
+    바로 아래 site 를 source_of(url) 로 미리 만들어 두는 것과 같은 규칙이다.
     """
+    date_of = {
+        item["article_id"]: published_on(item.get("published_date")) for item in ranked
+    }
+
     sources: list[Source] = []
     seen: set[int] = set()
 
@@ -145,6 +155,7 @@ def collect_sources(
             "title": item["title"],
             "url": item["url"],
             "site": item["site"],
+            "published_on": date_of.get(item["article_id"]),
             "role": "primary",
         })
         seen.add(item["article_id"])
@@ -167,6 +178,7 @@ def collect_sources(
             "title": entry["title"],
             "url": url,
             "site": source_of(url),
+            "published_on": date_of.get(article_id),
             "role": "related",
         })
         seen.add(article_id)

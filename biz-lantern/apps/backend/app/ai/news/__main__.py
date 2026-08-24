@@ -24,7 +24,7 @@ from app.ai.news.search import (
     NewsSearchResult,
     search_company_news,
 )
-from app.ai.news.signals import business_signals, mentions_company
+from app.ai.news.signals import business_signals, mentions_company, published_on
 from app.ai.news.state import DEFAULT_TOP_N, NewsState, selected_items
 
 LINE = "-" * 62
@@ -88,7 +88,7 @@ def print_workflow(state: NewsState) -> None:
 
         hit = "O" if mentions_company(item, company) else "X"
         group = f"g{item['duplicate_group']}" if item["duplicate_group"] else "  "
-        date = (item["published_date"] or "")[:10] or "          "
+        date = published_on(item["published_date"]) or "          "
 
         print(f"  {item['rank']:>2} {item['score_rerank']:.2f} {group} {_mark(item)}"
               f" 검색#{item['article_id']:<2} {date} 회사명{hit}  {item['title'] or '(제목 없음)'}")
@@ -120,7 +120,7 @@ def _print_quality(state: NewsState, company: str) -> None:
 
     print(f"\n  선정 기사: {len(chosen)}건")
     for item in chosen:
-        date = (item["published_date"] or "")[:10] or "          "
+        date = published_on(item["published_date"]) or "          "
         print(f"    #{item['article_id']:<2} {item['score_rerank']:.2f} {date}"
               f"  {item['title'] or '(제목 없음)'}")
 
@@ -175,7 +175,14 @@ def _print_summaries(state: NewsState) -> None:
 
         print("\n     출처:")
         for source in item["sources"]:
-            mark = " (같은 사건)" if source["role"] == "related" else ""
+            # 같은 괄호를 나눠 쓴다. 둘 다 없으면 괄호 자체를 찍지 않는다 -
+            # 발행일이 없는 자료(회사 소개 페이지 등)에 빈 괄호가 남지 않게.
+            notes = [note for note in (
+                "같은 사건" if source["role"] == "related" else "",
+                source["published_on"] or "",
+            ) if note]
+            mark = f" ({', '.join(notes)})" if notes else ""
+
             print(f"     - {source['site']}{mark}")
             print(f"       {source['url']}")
 
@@ -203,7 +210,7 @@ def print_search_only(result: NewsSearchResult) -> None:
     for order, item in enumerate(items, start=1):
         hit = "O" if mentions_company(item, company) else "X"
         score = f"{item['score']:.2f}" if isinstance(item["score"], (int, float)) else "  - "
-        date = (item["published_date"] or "")[:10] or "          "
+        date = published_on(item["published_date"]) or "          "
 
         print(f"  {order:>2} {_mark(item)} {score} {date} 회사명{hit}"
               f"  {item['title'] or '(제목 없음)'}")

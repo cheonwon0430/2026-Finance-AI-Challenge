@@ -57,6 +57,9 @@ class Source(TypedDict):
     title: str | None
     url: str                # 검색이 준 원본 문자열. 만들어내거나 바꾸지 않는다
     site: str               # source_of(url)
+    # "2026-08-08". 없으면 None, 못 읽으면 원본 그대로. NewsItem.published_date 와 이름이
+    # 다른 건 의미가 다르기 때문이다 - 저쪽은 Tavily 원본, 이쪽은 화면·API 가 그대로 쓸 값이다
+    published_on: str | None
     role: Literal["primary", "related"]
 
 
