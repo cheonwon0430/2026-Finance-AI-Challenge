@@ -403,7 +403,7 @@ def collect(
     # print(f"[Pipeline] _fetch_company 결과: {company}")
 
     nts_operating, nts_error = _verify_nts(company, report)
-    print(f"[Pipeline] _verify_nts 결과: {(nts_operating, nts_error)}")
+    # print(f"[Pipeline] _verify_nts 결과: {(nts_operating, nts_error)}")
 
     audit_report = _find_audit_report(corp_code, report, paths)
     # print(f"[Pipeline] _find_audit_report 결과: {audit_report}")
