@@ -122,11 +122,11 @@ export function ChatbotWidget() {
       
       {/* 1. 채팅창 영역 (열렸을 때만 렌더링) */}
       {isOpen && (
-        <div className="mb-4 flex h-[450px] w-[320px] flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl transition-all sm:h-[500px] sm:w-[360px]">
-          
+        <div className="mb-4 flex h-[1000px] w-[2000px] flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl transition-all sm:h-[550px] sm:w-[500px]">
+
           {/* 채팅창 헤더 */}
           <div className="flex items-center justify-between bg-blue-600 px-4 py-3 text-white">
-            <h3 className="font-semibold">AI 어시스턴트</h3>
+            <h3 className="font-semibold">최근 제품 뉴스 분석 AI</h3>
 
             <button
               onClick={toggleChat}
@@ -142,7 +142,7 @@ export function ChatbotWidget() {
           <div className="flex-1 overflow-y-auto bg-gray-50 p-4">
             {messages.length === 0 ? (
               <div className="mt-2 text-center text-sm text-gray-500">
-                무엇을 도와드릴까요?
+                기업명을 입력해주세요(기업명만)
               </div>
             ) : (
               <div className="space-y-4">
