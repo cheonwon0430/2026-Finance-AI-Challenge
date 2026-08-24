@@ -24,7 +24,7 @@ def get_company_by_company_name(company: str):
     }
 
     try:
-        print(f"{company} 특허/실용 공개·등록공보 정보를 조회 중입니다...\n")
+        # print(f"{company} 특허/실용 공개·등록공보 정보를 조회 중입니다...\n")
         response = httpx.get(URL, params=params, timeout=30, follow_redirects=True)
         response.raise_for_status()
 
@@ -33,7 +33,7 @@ def get_company_by_company_name(company: str):
 
         # (필요시) dict -> JSON 문자열 변환 및 출력
         json_data = json.dumps(dict_data, ensure_ascii=False, indent=2)
-        print("JSON 변환 결과:\n", json_data)
+        # print("JSON 변환 결과:\n", json_data)
 
         return json_data
 
@@ -80,7 +80,7 @@ def get_company_by_application_number(app_number: str):
     }
 
     try:
-        print(f"{app_number} 특허/실용 행정처리 이력을 조회 중입니다...\n")
+        # print(f"{app_number} 특허/실용 행정처리 이력을 조회 중입니다...\n")
         response = httpx.get(URL, params=params, timeout=30, follow_redirects=True)
         response.raise_for_status()
 
@@ -89,7 +89,7 @@ def get_company_by_application_number(app_number: str):
 
         # (필요시) dict -> JSON 문자열 변환 및 출력
         json_data = json.dumps(dict_data, ensure_ascii=False, indent=2)
-        print("JSON 변환 결과:\n", json_data)
+        # print("JSON 변환 결과:\n", json_data)
 
         return json_data
 

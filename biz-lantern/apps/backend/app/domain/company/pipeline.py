@@ -31,6 +31,7 @@ def 핸들러(비-async)로 노출하면 FastAPI 가 스레드풀에서 돌려 �
     python -m app.domain.company.pipeline 핀 --corp-code 01836952
     python -m app.domain.company.pipeline --corp-code 01836952
 """
+
 import argparse
 import asyncio
 import json
@@ -50,15 +51,15 @@ from app.domain.company.parser.document_clean import clean_document, save_output
 # ---------------------------------------------------------------------------
 # [1] 설정
 # ---------------------------------------------------------------------------
-RAW_DIR = Path("data/raw")          # 받은 응답 원본. data/ 는 gitignore 대상이다
+RAW_DIR = Path("data/raw")  # 받은 응답 원본. data/ 는 gitignore 대상이다
 
 # bgn_de 를 주지 않으면 DART 는 최근 3개월치만 준다. 감사보고서는 연 1회라 그 범위로는
 # 대부분 0건으로 나오므로 시작일을 명시적으로 고정한다.
 F001_BGN_DE = "20180101"
-F001 = "F001"                       # 공시유형 상세: 감사보고서
+F001 = "F001"  # 공시유형 상세: 감사보고서
 
-DART_OK = "000"                     # 정상 응답
-DART_NO_DATA = "013"                # 조회된 데이터 없음. 오류가 아니다
+DART_OK = "000"  # 정상 응답
+DART_NO_DATA = "013"  # 조회된 데이터 없음. 오류가 아니다
 
 TOTAL_STEPS = 5
 
@@ -93,7 +94,9 @@ class _Reporter:
         self._on_progress = on_progress or _log_progress
         self.steps: list[Progress] = []
 
-    def __call__(self, step: int, name: str, status: Status, detail: str | None = None) -> None:
+    def __call__(
+        self, step: int, name: str, status: Status, detail: str | None = None
+    ) -> None:
         event: Progress = {
             "step": step,
             "total": TOTAL_STEPS,
@@ -213,18 +216,27 @@ def _verify_nts(company: dict, report: _Reporter) -> tuple[bool | None, str | No
             ceo_nm=company["ceo_nm"],
             est_dt=company["est_dt"],
         )
-    except Exception as error:  # noqa: BLE001 - 국세청 서버는 자주 죽는다. 무엇이 터지든 수집은 계속한다
+    except (
+        Exception
+    ) as error:  # noqa: BLE001 - 국세청 서버는 자주 죽는다. 무엇이 터지든 수집은 계속한다
         detail = _reason(error)
         report(2, name, "fail", f"{detail} (건너뛰고 계속)")
 
         return None, detail
 
-    report(2, name, "ok", "계속사업자" if operating else "확인 실패(폐업·휴업 또는 정보 불일치)")
+    report(
+        2,
+        name,
+        "ok",
+        "계속사업자" if operating else "확인 실패(폐업·휴업 또는 정보 불일치)",
+    )
 
     return operating, None
 
 
-def _find_audit_report(corp_code: str, report: _Reporter, paths: dict[str, str]) -> dict | None:
+def _find_audit_report(
+    corp_code: str, report: _Reporter, paths: dict[str, str]
+) -> dict | None:
     """[3/5] 감사보고서(F001) 목록에서 최신 1건을 고른다.
 
     감사보고서 한 건에 당기·전기 2개년 비교 재무가 들어 있어 최신 1건으로 전년 대비까지 나온다.
@@ -267,7 +279,9 @@ def _find_audit_report(corp_code: str, report: _Reporter, paths: dict[str, str])
     return latest
 
 
-def _fetch_document(corp_code: str, rcept_no: str, report: _Reporter, paths: dict[str, str]) -> str:
+def _fetch_document(
+    corp_code: str, rcept_no: str, report: _Reporter, paths: dict[str, str]
+) -> str:
     """[4/5] 감사보고서 원문 XML. 이미 받아둔 게 있으면 다시 받지 않는다.
 
     문서는 접수번호별로 불변이고 건당 수 MB 이며 DART 일일 한도가 2만 건이다.
@@ -297,7 +311,9 @@ def _fetch_document(corp_code: str, rcept_no: str, report: _Reporter, paths: dic
         raise
 
     # ZIP 안의 파일을 전부 남기고 첫 번째를 정리 대상으로 삼는다
-    saved = [_save_text(directory / filename, text) for filename, text in documents.items()]
+    saved = [
+        _save_text(directory / filename, text) for filename, text in documents.items()
+    ]
 
     paths["document_xml"] = str(saved[0])
     report(4, name, "ok", f"{len(saved)}개 파일 저장 ({saved[0].name})")
@@ -305,7 +321,9 @@ def _fetch_document(corp_code: str, rcept_no: str, report: _Reporter, paths: dic
     return documents[saved[0].name]
 
 
-def _clean(rcept_no: str, xml_text: str, report: _Reporter, paths: dict[str, str]) -> dict:
+def _clean(
+    rcept_no: str, xml_text: str, report: _Reporter, paths: dict[str, str]
+) -> dict:
     """[5/5] 원문 정리. load_xml() 은 접수번호로 API 를 다시 타므로 쓰지 않는다."""
     name = "원문 정리"
     report(5, name, "start")
@@ -337,13 +355,31 @@ async def find_corp_candidates(company_name: str) -> list[dict]:
 
 class CollectResult(TypedDict):
     corp_code: str
-    company: dict                # 기업개황 원본
-    nts_operating: bool | None   # 진위확인+상태조회 통과 여부. 확인 못 했으면 None
+    company: dict  # 기업개황 원본
+    nts_operating: bool | None  # 진위확인+상태조회 통과 여부. 확인 못 했으면 None
     nts_error: str | None
-    audit_report: dict | None    # 선택한 F001 1건의 메타
-    # document: dict | None        # document_clean 결과
-    paths: dict[str, str]        # 저장한 파일 경로
-    steps: list[Progress]        # 단계별 진행·실패 기록
+    audit_report: dict | None  # 선택한 F001 1건의 메타
+    document: str | None        # document_clean 결과
+    # paths: dict[str, str]  # 저장한 파일 경로
+    steps: list[Progress]  # 단계별 진행·실패 기록
+
+
+def _read_document_markdown(paths: dict[str, str]) -> str | None:
+    """pipeline 이 이미 저장해 둔 paths.document_clean_md 를 읽어 내용을 돌려준다.
+
+    감사보고서가 없는 회사는 애초에 pipeline 이 이 경로를 만들지 않으므로
+    키가 없거나 파일이 없는 건 오류가 아니라 정상적으로 있을 수 있는 상황이다.
+    """
+    md_path = paths.get("document_clean_md")
+    if not md_path:
+        return None
+
+    path = Path(md_path)
+    if not path.exists():
+        logger.warning("document_clean_md 파일을 찾을 수 없음: %s", md_path)
+        return None
+
+    return path.read_text(encoding="utf-8")
 
 
 def collect(
@@ -357,29 +393,30 @@ def collect(
     반대로 기업개황과 원문 처리가 깨지면 예외를 올린다 - 있다고 한 보고서를 못 읽는 건
     비어 있는 결과로 덮을 문제가 아니다.
     """
-    print(f"[Pipeline] 시작 corp_code={corp_code}")
+    # print(f"[Pipeline] 시작 corp_code={corp_code}")
 
     report = _Reporter(on_progress)
     paths: dict[str, str] = {}
 
     company = _fetch_company(corp_code, report, paths)
-    print(f"[Pipeline] _fetch_company 결과: {company}")
+    # print(f"[Pipeline] _fetch_company 결과: {company}")
 
     nts_operating, nts_error = _verify_nts(company, report)
-    print(f"[Pipeline] _verify_nts 결과: {(nts_operating, nts_error)}")
+    # print(f"[Pipeline] _verify_nts 결과: {(nts_operating, nts_error)}")
 
     audit_report = _find_audit_report(corp_code, report, paths)
-    print(f"[Pipeline] _find_audit_report 결과: {audit_report}")
-
+    # print(f"[Pipeline] _find_audit_report 결과: {audit_report}")
     document = None
     if audit_report is not None:
         rcept_no = audit_report["rcept_no"]
 
         xml_text = _fetch_document(corp_code, rcept_no, report, paths)
-        print(f"[Pipeline] _fetch_document 결과: {len(xml_text)}자 (미리보기 200자) {xml_text[:200]!r}")
+        # print(f"[Pipeline] _fetch_document 결과: {len(xml_text)}자 (미리보기 200자) {xml_text[:200]!r}")
 
-        document = _clean(rcept_no, xml_text, report, paths)
-        print(f"[Pipeline] _clean 결과: {document}")
+        # XML -> md file
+        _clean(rcept_no, xml_text, report, paths)
+        # print(f"[Pipeline] _clean 결과: {document}")
+    document_markdown = _read_document_markdown(paths)
 
     result: CollectResult = {
         "corp_code": corp_code,
@@ -387,12 +424,12 @@ def collect(
         "nts_operating": nts_operating,
         "nts_error": nts_error,
         "audit_report": audit_report,
-        # "document": document,
-        "paths": paths,
+        "document": document_markdown,
+        # "paths": paths,
         "steps": report.steps,
     }
 
-    print(f"[Pipeline] 최종 결과: {result}")
+    # print(f"[Pipeline] 최종 결과: {result}")
 
     return result
 
@@ -406,7 +443,7 @@ _STATUS_LABEL = {"ok": "완료", "skip": "건너뜀", "fail": "실패"}
 def _print_progress(event: Progress) -> None:
     """start 로 줄을 열고 끝난 상태로 같은 줄을 닫는다.
 
-        [1/5] 기업개황 조회 (corp_code=01836952) ... 완료
+    [1/5] 기업개황 조회 (corp_code=01836952) ... 완료
     """
     detail = event["detail"]
 
@@ -451,7 +488,9 @@ def _resolve_corp_code(company_name: str) -> str | None:
 if __name__ == "__main__":
     import sys
 
-    parser = argparse.ArgumentParser(description="회사명 또는 corp_code 로 원천 데이터를 수집한다")
+    parser = argparse.ArgumentParser(
+        description="회사명 또는 corp_code 로 원천 데이터를 수집한다"
+    )
     parser.add_argument("company", nargs="?", help="검색할 회사명")
     parser.add_argument("--corp-code", help="corp_code 직접 지정 (동명 다건일 때)")
     args = parser.parse_args()
@@ -465,7 +504,9 @@ if __name__ == "__main__":
 
     try:
         result = collect(target, on_progress=_print_progress)
-    except Exception as error:  # noqa: BLE001 - CLI 최상단. 어떤 실패든 사람이 읽을 한 줄로 바꿔 내보낸다
+    except (
+        Exception
+    ) as error:  # noqa: BLE001 - CLI 최상단. 어떤 실패든 사람이 읽을 한 줄로 바꿔 내보낸다
         # collect 는 치명적 실패를 예외로 올린다. 라이브러리 호출자에게는 그게 맞지만
         # CLI 에서 트레이스백만 뱉으면 무엇이 잘못됐는지가 묻힌다.
         # 어느 단계에서 깨졌는지는 이미 위에 fail 로 찍혔으므로 여기서는 사유만 덧붙인다.
@@ -473,14 +514,17 @@ if __name__ == "__main__":
         print(f"수집 실패: {_reason(error)}", file=sys.stderr)
         sys.exit(1)
 
-    print()
-    print(f"수집 완료: {result['company'].get('corp_name')} ({target})")
-    for key, path in result["paths"].items():
-        print(f"  {key:<22} {path}")
+    # 프론트엔드로 돌려줄 때 paths는 불필요하여 제거했기에 아래 내용을 주석함
+    # print()
+    # print(f"수집 완료: {result['company'].get('corp_name')} ({target})")
+    # for key, path in result["paths"].items():
+    #     print(f"  {key:<22} {path}")
 
     failed = [step for step in result["steps"] if step["status"] in ("fail", "skip")]
     if failed:
         print()
         print("확인 필요:")
         for step in failed:
-            print(f"  [{step['step']}/{step['total']}] {step['name']} - {step['detail']}")
+            print(
+                f"  [{step['step']}/{step['total']}] {step['name']} - {step['detail']}"
+            )

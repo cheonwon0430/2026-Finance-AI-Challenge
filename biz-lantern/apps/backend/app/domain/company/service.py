@@ -57,7 +57,9 @@ class CompanyService:
         return fetch_business_status(b_no_list)
 
     @staticmethod
-    def _extract_kipris_items(raw_json: str, key: str, fallback_key: str | None = None) -> list[dict]:
+    def _extract_kipris_items(
+        raw_json: str, key: str, fallback_key: str | None = None
+    ) -> list[dict]:
         """kipris_api.py 가 돌려주는 JSON 문자열의 response.body.items 밑에서 항목 목록을 뽑는다.
 
         특허 목록(PatentUtilityInfo)과 행정이력 목록(RelatedDocsonfileInfo/item)
@@ -90,7 +92,9 @@ class CompanyService:
             info = [info]
 
         if not isinstance(info, list):
-            logger.warning("KIPRIS 응답의 %s 값이 예상과 다른 타입임: %r", key, type(info))
+            logger.warning(
+                "KIPRIS 응답의 %s 값이 예상과 다른 타입임: %r", key, type(info)
+            )
             return []
 
         # 리스트 안에 dict 가 아닌 값(예: 빈 XML 태그가 None 으로 온 경우)이 섞여 있어도
@@ -111,7 +115,9 @@ class CompanyService:
         # 실서버(Task 6 수동 검증) 확인 결과, 이 API 의 실제 최상위 키는 코드에 남아있던
         # 추정치(RelatedDocsonfileInfo/item)가 아니라 relateddocsonfileInfo(소문자 시작)다.
         # fallback_key 는 만약을 위해 남겨두되 실제로는 쓰이지 않는다.
-        return self._extract_kipris_items(raw, "relateddocsonfileInfo", fallback_key="item")
+        return self._extract_kipris_items(
+            raw, "relateddocsonfileInfo", fallback_key="item"
+        )
 
     async def get_company_patents(self, company_name: str) -> dict:
         """기업명으로 특허 목록과 특허별 행정이력을 조회한다.
@@ -133,14 +139,21 @@ class CompanyService:
         """
         raw = await asyncio.to_thread(get_company_by_company_name, company_name)
         if raw is None:
-            raise ExternalAPIError(f"KIPRIS 특허 조회 실패: company_name={company_name}")
+            raise ExternalAPIError(
+                f"KIPRIS 특허 조회 실패: company_name={company_name}"
+            )
 
         items = self._extract_kipris_items(raw, "PatentUtilityInfo")
 
         patents = []
         for item in items:
             app_number = item.get("ApplicationNumber")
-            history = await self._fetch_administrative_history(app_number) if app_number else None
+            history = (
+                h[-1]
+                if app_number
+                and (h := await self._fetch_administrative_history(app_number))
+                else None
+            )
 
             patents.append(
                 {
@@ -182,7 +195,11 @@ class CompanyService:
             # corp_search.search() 는 부분 일치라 "삼성전자" 검색이 "삼성전자서비스" 등과
             # 함께 여러 건 걸릴 수 있다. 정확히 일치하는 후보가 하나뿐이면 그것으로
             # 좁힌다 - 이건 자동으로 고르는 게 아니라 모호함을 해소하는 것이다.
-            exact = [m for m in matches if normalize(m["corp_name"]) == normalize(company_name)]
+            exact = [
+                m
+                for m in matches
+                if normalize(m["corp_name"]) == normalize(company_name)
+            ]
             if len(exact) == 1:
                 matches = exact
 
@@ -200,23 +217,23 @@ class CompanyService:
                 f"파이프라인 실행 실패: corp_code={corp_code}"
             ) from error
 
-    @staticmethod
-    def _read_document_markdown(paths: dict[str, str]) -> str | None:
-        """pipeline 이 이미 저장해 둔 paths.document_clean_md 를 읽어 내용을 돌려준다.
+    # @staticmethod
+    # def _read_document_markdown(paths: dict[str, str]) -> str | None:
+    #     """pipeline 이 이미 저장해 둔 paths.document_clean_md 를 읽어 내용을 돌려준다.
 
-        감사보고서가 없는 회사는 애초에 pipeline 이 이 경로를 만들지 않으므로
-        키가 없거나 파일이 없는 건 오류가 아니라 정상적으로 있을 수 있는 상황이다.
-        """
-        md_path = paths.get("document_clean_md")
-        if not md_path:
-            return None
+    #     감사보고서가 없는 회사는 애초에 pipeline 이 이 경로를 만들지 않으므로
+    #     키가 없거나 파일이 없는 건 오류가 아니라 정상적으로 있을 수 있는 상황이다.
+    #     """
+    #     md_path = paths.get("document_clean_md")
+    #     if not md_path:
+    #         return None
 
-        path = Path(md_path)
-        if not path.exists():
-            logger.warning("document_clean_md 파일을 찾을 수 없음: %s", md_path)
-            return None
+    #     path = Path(md_path)
+    #     if not path.exists():
+    #         logger.warning("document_clean_md 파일을 찾을 수 없음: %s", md_path)
+    #         return None
 
-        return path.read_text(encoding="utf-8")
+    #     return path.read_text(encoding="utf-8")
 
     async def get_company_overview(self, company_name: str) -> dict:
         """기업명 하나로 특허(+행정이력)와 수집 파이프라인 결과를 함께 조회한다.
@@ -242,18 +259,20 @@ class CompanyService:
         """
         try:
             async with asyncio.timeout(OVERVIEW_TIMEOUT_SECONDS):
-                patents = await self.get_company_patents(company_name)
                 pipeline_result = await self.run_company_pipeline(company_name)
+                patents = await self.get_company_patents(company_name)
         except TimeoutError as error:
             raise ExternalAPIError(
                 f"전체 조회 시간 초과({OVERVIEW_TIMEOUT_SECONDS}초): company_name={company_name}"
             ) from error
 
-        document_markdown = self._read_document_markdown(pipeline_result.get("paths", {}))
+        # document_markdown = self._read_document_markdown(
+        #     pipeline_result.get("paths", {})
+        # )
 
         return {
             "company_name": company_name,
             "patents": patents,
             "pipeline": pipeline_result,
-            "document_markdown": document_markdown,
+            # "document_markdown": document_markdown,
         }

@@ -30,9 +30,7 @@ export function CompanySearchPage() {
       {!companyName && <p className="mt-8">분석할 기업을 검색하세요.</p>}
 
       {companyName && isError && (
-        <p className="mt-8">
-          '{companyName}' 기업을 조회하지 못했습니다.
-        </p>
+        <p className="mt-8">'{companyName}' 기업을 조회하지 못했습니다.</p>
       )}
 
       {companyName && !isError && (
@@ -44,7 +42,7 @@ export function CompanySearchPage() {
           )}
 
           <CompanySummary
-            documentMarkdown={data?.data.document_markdown}
+            documentMarkdown={data?.data.pipeline.document}
             isDocumentLoading={isPending}
             isDocumentError={isError}
           />
