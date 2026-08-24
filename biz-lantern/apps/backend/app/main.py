@@ -1,6 +1,7 @@
 from fastapi import FastAPI, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.domain.ai.router import router as chat_router
 from app.domain.company.router import router as company_router
 
 
@@ -26,6 +27,7 @@ base_router = APIRouter(
 
 # Domain Routers
 base_router.include_router(company_router)
+base_router.include_router(chat_router)
 
 # Register API v1
 app.include_router(base_router)
