@@ -4,6 +4,8 @@
 원래 __main__.py 안에 CLI 표시용으로 있던 것을 여기로 옮겼다. rerank 가 LLM 입력으로도
 같은 값을 써야 하는데, 화면에 찍히는 값과 LLM 이 보는 값이 다르면 결과를 해석할 수 없다.
 """
+from datetime import datetime
+from email.utils import parsedate_to_datetime
 from urllib.parse import urlparse
 
 # 사업화 Query 가 제 일을 했는지 보는 표지. 이 단어가 하나도 안 잡히면 Query 를 고쳐야 한다
@@ -45,3 +47,38 @@ def source_of(url: str) -> str:
     host = urlparse((url or "").strip()).netloc.lower()
 
     return host.removeprefix("www.")
+
+
+def published_on(raw: str | None) -> str | None:
+    """발행일을 'YYYY-MM-DD' 로. 없으면 None, 못 읽으면 원본 그대로.
+
+    Tavily 는 RFC 2822("Sat, 08 Aug 2026 13:00:00 GMT")로 주는데 형식이 한 가지가 아니다.
+    시각을 빼고 오기도 하고, 어떤 매체는 ISO 로 온다. 앞에서 10자를 자르면 그중 RFC 2822 는
+    "Sat, 08 Au" 가 된다 - 그래서 잘라 쓰지 않고 읽어서 다시 쓴다.
+
+    적힌 시간대를 UTC 로 환산하지 않는다. 매체가 '8월 8일 기사'로 냈으면 8월 8일이다.
+
+    못 읽는 값은 버리지 않고 그대로 돌려준다. 이상한 값이 왔다는 사실이 화면에 보여야 한다.
+    """
+    text = (raw or "").strip()
+    if not text:
+        return None
+
+    # 실제 응답의 대부분이 이 형식이라 먼저 시도한다
+    try:
+        return parsedate_to_datetime(text).date().isoformat()
+    except (TypeError, ValueError):
+        pass
+
+    # 시각이 없는 RFC 2822("Thu, 13 Nov 2026"). 같은 파서를 쓰려고 시각을 채워 준다 -
+    # strptime("%a, %d %b %Y") 은 요일·월 이름이 LC_TIME 에 걸려 환경마다 달라진다
+    try:
+        return parsedate_to_datetime(f"{text} 00:00:00 +0000").date().isoformat()
+    except (TypeError, ValueError):
+        pass
+
+    # ISO 8601. fromisoformat 은 날짜만 있어도 받는다
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00")).date().isoformat()
+    except ValueError:
+        return text
