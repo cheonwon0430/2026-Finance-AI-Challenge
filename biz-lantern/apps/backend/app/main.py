@@ -1,9 +1,9 @@
-from fastapi import FastAPI, APIRouter
+from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.domain.ai.router import router as chat_router
 from app.domain.company.router import router as company_router
-
+from app.domain.report.router import router as report_router
 
 app = FastAPI(
     title="biz-lantern API",
@@ -28,6 +28,7 @@ base_router = APIRouter(
 # Domain Routers
 base_router.include_router(company_router)
 base_router.include_router(chat_router)
+base_router.include_router(report_router)
 
 # Register API v1
 app.include_router(base_router)
