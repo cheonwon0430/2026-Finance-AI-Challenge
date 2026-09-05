@@ -34,6 +34,7 @@ def 핸들러(비-async)로 노출하면 FastAPI 가 스레드풀에서 돌려 �
 
 import argparse
 import asyncio
+import calendar
 import json
 import logging
 import re
@@ -45,8 +46,12 @@ from app.domain.company.api.corp_search import search_by_name
 from app.domain.company.api.dart_company import get_company
 from app.domain.company.api.dart_disclosure_list import get_disclosure_list
 from app.domain.company.api.dart_document import extract_xml, fetch_document_raw
-from app.domain.company.api.nts_api import is_operating_business
-from app.domain.company.parser.document_clean import clean_document, save_outputs
+from app.domain.company.api.nts_api import check_business
+from app.domain.company.parser.document_clean import (
+    clean_document,
+    render_markdown,
+    save_outputs,
+)
 
 # ---------------------------------------------------------------------------
 # [1] 설정
@@ -57,6 +62,14 @@ RAW_DIR = Path("data/raw")  # 받은 응답 원본. data/ 는 gitignore 대상�
 # 대부분 0건으로 나오므로 시작일을 명시적으로 고정한다.
 F001_BGN_DE = "20180101"
 F001 = "F001"  # 공시유형 상세: 감사보고서
+F005 = "F005"  # 공시유형 상세: 감사보고서 미제출신고
+
+# 감사보고서 한 건에 당기·전기 2개년이 들어 있으므로 3건이면 3개 회계연도가 덮인다.
+# F001 목록은 2018년 이후 전부를 주지만 문서가 건당 수 MB 라 필요한 만큼만 받는다.
+MAX_REPORTS = 3
+
+# report_nm 은 '감사보고서 (2025.12)' 형태다. 괄호 안이 회계연도·결산월이다.
+_FISCAL_YEAR = re.compile(r"\((\d{4})\.(\d{1,2})\)")
 
 DART_OK = "000"  # 정상 응답
 DART_NO_DATA = "013"  # 조회된 데이터 없음. 오류가 아니다
@@ -194,10 +207,15 @@ def _fetch_company(corp_code: str, report: _Reporter, paths: dict[str, str]) -> 
     return company
 
 
-def _verify_nts(company: dict, report: _Reporter) -> tuple[bool | None, str | None]:
+def _verify_nts(
+    company: dict, report: _Reporter
+) -> tuple[dict | None, str | None]:
     """[2/5] 국세청 진위확인 + 상태조회. 서버가 불안정해 실패해도 수집을 멈추지 않는다.
 
-    공동대표를 p_nm / p_nm2 로 쪼개는 규칙이 is_operating_business 안에 이미 있으므로
+    check_business 가 판정 근거를 통째로 돌려준다. bool 로 줄이지 않는 이유는
+    "폐업" 과 "대표자명이 달라 대조 실패" 가 위험도가 정반대이기 때문이다.
+
+    공동대표를 p_nm / p_nm2 로 쪼개는 규칙이 check_business 안에 이미 있으므로
     여기서 payload 를 다시 만들지 않는다.
     """
     name = "국세청 사업자 확인"
@@ -211,46 +229,51 @@ def _verify_nts(company: dict, report: _Reporter) -> tuple[bool | None, str | No
         return None, detail
 
     try:
-        operating = is_operating_business(
+        checked = check_business(
             bizr_no=bizr_no,
             ceo_nm=company["ceo_nm"],
             est_dt=company["est_dt"],
         )
-        # print(f"operating : {operating}")
-    except (
-        Exception
-    ) as error:  # noqa: BLE001 - 국세청 서버는 자주 죽는다. 무엇이 터지든 수집은 계속한다
+    # 국세청 서버는 자주 죽는다. 무엇이 터지든 수집은 계속한다
+    except Exception as error:  # noqa: BLE001
         detail = _reason(error)
         report(2, name, "fail", f"{detail} (건너뛰고 계속)")
 
         return None, detail
 
-    report(
-        2,
-        name,
-        "ok",
-        "계속사업자" if operating else "확인 실패(폐업·휴업 또는 정보 불일치)",
-    )
+    report(2, name, "ok", _nts_summary(checked))
 
-    return operating, None
+    return checked, None
 
 
-def _find_audit_report(
-    corp_code: str, report: _Reporter, paths: dict[str, str]
-) -> dict | None:
-    """[3/5] 감사보고서(F001) 목록에서 최신 1건을 고른다.
+def _nts_summary(checked: dict) -> str:
+    """진행 알림 한 줄. 무엇 때문에 아닌지가 보여야 한다."""
+    if not checked["verified"]:
+        return f"진위확인 불일치(valid={checked['valid_code']}) - 폐업 여부와는 별개"
 
-    감사보고서 한 건에 당기·전기 2개년 비교 재무가 들어 있어 최신 1건으로 전년 대비까지 나온다.
-    0건이면 외감 대상이 아닌 소규모 비상장이라는 뜻이므로 오류가 아니다.
-    """
-    name = "감사보고서 목록(F001) 조회"
-    report(3, name, "start")
+    parts = [checked["status"] or "상태 미상"]
 
+    if checked["closed_at"]:
+        parts.append(f"폐업일 {checked['closed_at']}")
+
+    return " · ".join(parts)
+
+
+def _disclosures(
+    corp_code: str,
+    detail_ty: str,
+    filename: str,
+    step: int,
+    name: str,
+    report: _Reporter,
+    paths: dict[str, str],
+) -> list[dict]:
+    """공시검색 한 종류를 받아 목록으로 돌려준다. 0건은 오류가 아니다."""
     try:
         payload = get_disclosure_list(
             corp_code,
             bgn_de=F001_BGN_DE,
-            pblntf_detail_ty=F001,
+            pblntf_detail_ty=detail_ty,
         )
         disclosures = json.loads(payload)
         status = disclosures.get("status")
@@ -260,24 +283,72 @@ def _find_audit_report(
                 f"DART 공시검색 실패: status={status} {disclosures.get('message')}"
             )
     except Exception as error:
-        report(3, name, "fail", _reason(error))
+        report(step, name, "fail", _reason(error))
         raise
 
-    paths["disclosures"] = str(
-        _save_text(company_dir(corp_code) / "disclosure_f001.json", payload)
-    )
+    paths[filename] = str(_save_text(company_dir(corp_code) / f"{filename}.json", payload))
 
-    items = disclosures.get("list") or []
+    return disclosures.get("list") or []
+
+
+def fiscal_year_of(report_nm: str | None) -> str | None:
+    """'감사보고서 (2025.12)' -> '2025-12-31'.
+
+    회계연도를 report_nm 에서 뽑는다. 문서 안에도 기수(제 11 기)는 있지만 그건
+    회사마다 세는 방식이 달라 절대 연도로 바꿀 수 없다. 목록 쪽이 확실하다.
+    """
+    matched = _FISCAL_YEAR.search(report_nm or "")
+    if matched is None:
+        return None
+
+    year, month = int(matched.group(1)), int(matched.group(2))
+    last_day = calendar.monthrange(year, month)[1]
+
+    return f"{year:04d}-{month:02d}-{last_day:02d}"
+
+
+def _find_audit_reports(
+    corp_code: str, report: _Reporter, paths: dict[str, str]
+) -> list[dict]:
+    """[3/5] 감사보고서(F001) 목록에서 최신 MAX_REPORTS 건을 고른다.
+
+    한 건에 당기·전기 2개년이 들어 있어 3건이면 3개 회계연도가 덮인다.
+    0건이면 외감 대상이 아니라는 뜻이므로 오류가 아니다.
+    """
+    name = "감사보고서 목록(F001) 조회"
+    report(3, name, "start")
+
+    items = _disclosures(corp_code, F001, "disclosure_f001", 3, name, report, paths)
+
     if not items:
         report(3, name, "skip", "감사보고서 없음 (외부감사 대상이 아닐 수 있음)")
 
-        return None
+        return []
 
-    # 응답 순서에 기대지 않고 접수일자로 명시적으로 고른다
-    latest = max(items, key=lambda item: item["rcept_dt"])
-    report(3, name, "ok", f"{len(items)}건 중 최신 {latest['rcept_dt']} 선택")
+    # 응답 순서에 기대지 않고 접수일자로 명시적으로 고른다. 같은 회계연도에
+    # [기재정정]본이 있으면 접수일이 더 늦어 자동으로 정정본이 앞에 온다.
+    latest = sorted(items, key=lambda item: item["rcept_dt"], reverse=True)[:MAX_REPORTS]
+    years = ", ".join(fiscal_year_of(item.get("report_nm")) or "?" for item in latest)
+    report(3, name, "ok", f"{len(items)}건 중 최신 {len(latest)}건 선택 ({years})")
 
     return latest
+
+
+def _find_non_submission(
+    corp_code: str, report: _Reporter, paths: dict[str, str]
+) -> list[dict]:
+    """감사보고서가 0건일 때만 미제출신고(F005)를 확인한다.
+
+    F001 이 있으면 미제출신고는 논리적으로 무의미하고 DART 호출만 늘어난다.
+    여기서 건이 잡히면 '제출하지 않았다고 스스로 신고한' 것이라 리스크 신호다.
+    """
+    name = "감사보고서 미제출신고(F005) 조회"
+    report(3, name, "start")
+
+    items = _disclosures(corp_code, F005, "disclosure_f005", 3, name, report, paths)
+    report(3, name, "ok" if items else "skip", f"{len(items)}건")
+
+    return items
 
 
 def _fetch_document(
@@ -324,23 +395,28 @@ def _fetch_document(
 
 def _clean(
     rcept_no: str, xml_text: str, report: _Reporter, paths: dict[str, str]
-) -> dict:
-    """[5/5] 원문 정리. load_xml() 은 접수번호로 API 를 다시 타므로 쓰지 않는다."""
+) -> tuple[dict, str]:
+    """[5/5] 원문 정리. load_xml() 은 접수번호로 API 를 다시 타므로 쓰지 않는다.
+
+    (정리된 dict, 마크다운) 을 돌려준다. 마크다운은 방금 만든 것을 그대로 넘긴다 -
+    저장한 파일을 다시 읽으면 같은 내용을 두 번 만드는 셈이다.
+    """
     name = "원문 정리"
-    report(5, name, "start")
+    report(5, name, "start", rcept_no)
 
     try:
         cleaned = clean_document(xml_text)
         json_path, md_path = save_outputs(cleaned, rcept_no)
+        markdown = render_markdown(cleaned)
     except Exception as error:
         report(5, name, "fail", _reason(error))
         raise
 
-    paths["document_clean_json"] = str(json_path)
-    paths["document_clean_md"] = str(md_path)
+    paths[f"clean_json_{rcept_no}"] = str(json_path)
+    paths[f"clean_md_{rcept_no}"] = str(md_path)
     report(5, name, "ok", f"{len(cleaned['sections'])}개 섹션 -> {json_path}")
 
-    return cleaned
+    return cleaned, markdown
 
 
 # ---------------------------------------------------------------------------
@@ -354,33 +430,50 @@ async def find_corp_candidates(company_name: str) -> list[dict]:
     return await search_by_name(company_name)
 
 
+class AuditReport(TypedDict):
+    """감사보고서 한 건. 목록 메타와 정리된 본문을 함께 들고 있는다."""
+
+    rcept_no: str
+    rcept_dt: str
+    report_nm: str
+    auditor: str | None       # flr_nm. 감사보고서의 제출인은 회계법인이다
+    fiscal_year: str | None   # report_nm 의 (2025.12) -> 2025-12-31
+    corrected: bool           # [기재정정] 여부
+    document: str             # 정리된 마크다운
+    clean: dict               # 정리된 구조 원본. 계정·주석 파싱이 여기서 출발한다
+
+
 class CollectResult(TypedDict):
     corp_code: str
     company: dict  # 기업개황 원본
-    nts_operating: bool | None  # 진위확인+상태조회 통과 여부. 확인 못 했으면 None
+    nts: dict | None  # check_business 결과. 확인 못 했으면 None
     nts_error: str | None
-    audit_report: dict | None  # 선택한 F001 1건의 메타
-    document: str | None        # document_clean 결과
-    # paths: dict[str, str]  # 저장한 파일 경로
+    audit_reports: list[AuditReport]  # 최신순. 비어 있으면 외감 대상이 아니다
+    non_submission: list[dict] | None  # F005. 감사보고서가 0건일 때만 조회한다
     steps: list[Progress]  # 단계별 진행·실패 기록
 
 
-def _read_document_markdown(paths: dict[str, str]) -> str | None:
-    """pipeline 이 이미 저장해 둔 paths.document_clean_md 를 읽어 내용을 돌려준다.
+def _collect_report(
+    corp_code: str, item: dict, report: _Reporter, paths: dict[str, str]
+) -> AuditReport:
+    """목록 한 건 -> 원문 수집 + 정리까지 끝낸 AuditReport."""
+    rcept_no = item["rcept_no"]
 
-    감사보고서가 없는 회사는 애초에 pipeline 이 이 경로를 만들지 않으므로
-    키가 없거나 파일이 없는 건 오류가 아니라 정상적으로 있을 수 있는 상황이다.
-    """
-    md_path = paths.get("document_clean_md")
-    if not md_path:
-        return None
+    xml_text = _fetch_document(corp_code, rcept_no, report, paths)
+    cleaned, markdown = _clean(rcept_no, xml_text, report, paths)
 
-    path = Path(md_path)
-    if not path.exists():
-        logger.warning("document_clean_md 파일을 찾을 수 없음: %s", md_path)
-        return None
+    report_nm = item.get("report_nm") or ""
 
-    return path.read_text(encoding="utf-8")
+    return {
+        "rcept_no": rcept_no,
+        "rcept_dt": item["rcept_dt"],
+        "report_nm": report_nm,
+        "auditor": item.get("flr_nm") or None,
+        "fiscal_year": fiscal_year_of(report_nm),
+        "corrected": "[기재정정]" in report_nm or item.get("rm") == "정",
+        "document": markdown,
+        "clean": cleaned,
+    }
 
 
 def collect(
@@ -390,49 +483,38 @@ def collect(
     """corp_code 하나로 원천 데이터를 모아 파일로 남기고 결과를 돌려준다.
 
     부분 실패를 허용한다. 국세청 조회가 실패하거나 감사보고서가 아예 없어도 나머지는
-    끝까지 수집하고, 무엇이 빠졌는지 nts_error / audit_report / steps 에 남긴다.
+    끝까지 수집하고, 무엇이 빠졌는지 nts_error / audit_reports / steps 에 남긴다.
     반대로 기업개황과 원문 처리가 깨지면 예외를 올린다 - 있다고 한 보고서를 못 읽는 건
     비어 있는 결과로 덮을 문제가 아니다.
     """
-    # print(f"[Pipeline] 시작 corp_code={corp_code}")
-
     report = _Reporter(on_progress)
     paths: dict[str, str] = {}
 
     company = _fetch_company(corp_code, report, paths)
-    # print(f"[Pipeline] _fetch_company 결과: {company}")
+    nts, nts_error = _verify_nts(company, report)
 
-    nts_operating, nts_error = _verify_nts(company, report)
-    # print(f"[Pipeline] _verify_nts 결과: {(nts_operating, nts_error)}")
+    items = _find_audit_reports(corp_code, report, paths)
 
-    audit_report = _find_audit_report(corp_code, report, paths)
-    # print(f"[Pipeline] _find_audit_report 결과: {audit_report}")
-    document = None
-    if audit_report is not None:
-        rcept_no = audit_report["rcept_no"]
+    audit_reports: list[AuditReport] = []
+    non_submission: list[dict] | None = None
 
-        xml_text = _fetch_document(corp_code, rcept_no, report, paths)
-        # print(f"[Pipeline] _fetch_document 결과: {len(xml_text)}자 (미리보기 200자) {xml_text[:200]!r}")
+    if items:
+        for index, item in enumerate(items, start=1):
+            report(4, "감사보고서 수집", "start", f"{index}/{len(items)}")
+            audit_reports.append(_collect_report(corp_code, item, report, paths))
+    else:
+        # 감사보고서가 없을 때만 미제출신고를 본다. 있으면 물어볼 이유가 없다.
+        non_submission = _find_non_submission(corp_code, report, paths)
 
-        # XML -> md file
-        _clean(rcept_no, xml_text, report, paths)
-        # print(f"[Pipeline] _clean 결과: {document}")
-    document_markdown = _read_document_markdown(paths)
-
-    result: CollectResult = {
+    return {
         "corp_code": corp_code,
         "company": company,
-        "nts_operating": nts_operating,
+        "nts": nts,
         "nts_error": nts_error,
-        "audit_report": audit_report,
-        "document": document_markdown,
-        # "paths": paths,
+        "audit_reports": audit_reports,
+        "non_submission": non_submission,
         "steps": report.steps,
     }
-
-    # print(f"[Pipeline] 최종 결과: {result}")
-
-    return result
 
 
 # ---------------------------------------------------------------------------

@@ -95,14 +95,33 @@ def validate_business(businesses: list[dict]) -> str:
 # ---------------------------------------------------------------------------
 # 3. 판정
 # ---------------------------------------------------------------------------
-def is_operating_business(bizr_no: str, ceo_nm: str, est_dt: str) -> bool:
-    """진위확인 한 번으로 '실존하고 운영 중인 사업자인가'를 판정한다.
+def check_business(bizr_no: str, ceo_nm: str, est_dt: str) -> dict[str, object]:
+    """진위확인 한 번으로 사업자 상태를 확인한다. 판정 근거를 통째로 돌려준다.
 
     /validate 응답에 status 가 함께 실려 오므로 /status 를 따로 부르지 않는다.
+
+    bool 하나로 줄이지 않는 이유가 있다. 실패에는 서로 다른 세 가지가 섞여 있는데,
+    보고서에서는 그 셋을 절대 같이 취급하면 안 된다.
+
+        대표자·개업일 불일치   국세청 기록과 대조에 실패했다. 폐업이라는 뜻이 아니다
+        휴업                  영업을 멈췄다
+        폐업                  end_dt 에 폐업일이 실려 온다
+
+    "2024-03-15 폐업" 과 "DART 대표자명이 최신이 아니라 대조 실패" 는 위험도가
+    정반대인데, bool 로 뭉개면 둘 다 그냥 False 가 된다.
+
+    돌려주는 값:
+
+        verified     진위확인 통과 여부 (valid == "01")
+        operating    계속사업자 여부. 진위확인을 통과하지 못했으면 None(알 수 없음)
+        status       b_stt 원문 ("계속사업자" / "휴업자" / "폐업자")
+        closed_at    end_dt. 폐업일이 있으면 그대로
     """
     # DART는 공동대표를 "홍길동, 김철수"처럼 쉼표로 합쳐 주지만, 국세청 API는
     # 대표자를 p_nm(1인)/p_nm2(공동대표 2인째)로 나눠 받으므로 분리해서 넣는다.
-    ceo_names = [name.strip() for name in ceo_nm.split(",") if name.strip()]
+    ceo_names = [name.strip() for name in (ceo_nm or "").split(",") if name.strip()]
+    if not ceo_names:
+        raise ValueError("대표자명이 없어 진위확인을 요청할 수 없습니다.")
 
     business = {
         "b_no": bizr_no,
@@ -114,17 +133,42 @@ def is_operating_business(bizr_no: str, ceo_nm: str, est_dt: str) -> bool:
 
     data = json.loads(validate_business([business]))["data"]
     if not data:
-        return False
+        return {
+            "verified": False,
+            "valid_code": None,
+            "operating": None,
+            "status_code": None,
+            "status": None,
+            "tax_type": None,
+            "closed_at": None,
+        }
 
     result = data[0]
+    status = result.get("status") or {}
 
-    # 1) 진위확인을 먼저 본다: 대표자/개업일이 국세청 기록과 다르면 상태와 무관하게
-    #    "실존 확인 불가"이므로 상태값은 확인할 필요가 없다.
-    if result.get("valid") != NTS_VALID_MATCH:
-        return False
+    # 진위확인을 먼저 본다. 대표자/개업일이 국세청 기록과 다르면 "실존 확인 불가"라
+    # 상태값을 해석할 근거가 없다. 그래서 operating 을 False 가 아니라 None 으로 둔다.
+    verified = result.get("valid") == NTS_VALID_MATCH
+    status_code = status.get("b_stt_cd")
 
-    # 2) 진위확인을 통과한 경우에만 상태조회 값을 본다: 계속사업자(01)여야 "운영 중".
-    return result.get("status", {}).get("b_stt_cd") == NTS_STATUS_ACTIVE
+    return {
+        "verified": verified,
+        "valid_code": result.get("valid"),
+        "operating": (status_code == NTS_STATUS_ACTIVE) if verified else None,
+        "status_code": status_code,
+        "status": status.get("b_stt") or None,
+        "tax_type": status.get("tax_type") or None,
+        "closed_at": status.get("end_dt") or None,
+    }
+
+
+def is_operating_business(bizr_no: str, ceo_nm: str, est_dt: str) -> bool:
+    """check_business 의 bool 요약. 기존 호출부를 위해 남겨 둔다.
+
+    '운영 중이 아니다' 와 '확인하지 못했다' 가 여기서는 똑같이 False 가 되므로,
+    보고서처럼 그 둘을 구분해야 하는 쪽은 check_business 를 직접 쓴다.
+    """
+    return bool(check_business(bizr_no, ceo_nm, est_dt)["operating"])
 
 
 if __name__ == "__main__":
