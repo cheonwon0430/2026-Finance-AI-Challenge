@@ -181,8 +181,9 @@ NS_PARA = "audit.para"
 NS_DERIVED = "derived"
 NS_CONFLICT = "conflict"
 
-# 예약. 팩토리는 없다 - collect() 가 아직 두 출처를 수집하지 않는다.
 NS_NEWS = "news"
+
+# 예약. 팩토리는 없다 - KIPRIS 응답 키가 실서버로 검증된 적이 없다.
 NS_PATENT = "kipris.patent"
 
 # 재무제표 약칭. ID 에 들어가므로 한 곳에서만 정한다.
@@ -304,6 +305,9 @@ CONFLICT_SOURCE_NAME = "출처 교차검증"
 AS_OF_LOOKUP = "조회일"
 AS_OF_FISCAL = "기준일"
 AS_OF_RECEIPT = "접수일"
+AS_OF_PUBLISHED = "발행일"
+
+NEWS_SOURCE_NAME = "뉴스 검색"
 
 
 def document_url(rcept_no: str | None) -> str | None:
@@ -373,6 +377,21 @@ def report_source(report: dict[str, Any]) -> Source:
     }
 
 
+def news_source(article: dict[str, Any]) -> Source:
+    """기사 한 건. 기준일은 조회일이 아니라 **발행일**이다.
+
+    document_url 에 기사 URL 을 그대로 둔다. DART 조각은 프레임셋이라 문단 딥링크가
+    원리적으로 불가능했지만(DART_VIEWER_URL 주석) 기사는 그 주소가 곧 원문이다.
+    """
+    return {
+        "name": article.get("site") or NEWS_SOURCE_NAME,
+        "as_of": article.get("published_on"),
+        "as_of_kind": AS_OF_PUBLISHED,
+        "document_url": article.get("url"),
+        "rcept_no": None,
+    }
+
+
 # ---------------------------------------------------------------------------
 # [4] 숫자 토큰 - 후검증이 대조할 집합
 # ---------------------------------------------------------------------------
@@ -391,6 +410,11 @@ _NUMBER = re.compile(r"\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?")
 
 # 긴 것부터 본다. 백만원을 원으로 잡으면 안 된다.
 UNIT_WORDS = ("백만원", "천만원", "천원", "억원", "조원", "원", "%", "주", "달러")
+
+# 법인격 표기는 단위가 아니다. 여기를 지우지 않으면 '(주)센트비' 의 '주' 가 주식 수
+# 단위로 잡혀 **회사명이 들어간 문장이 전부 폐기된다**(실서버 실측 - G-1·G-2 가
+# "허용되지 않은 단위: 주" 로 죽었다). 회사명은 거의 모든 항목에 등장하므로 파장이 크다.
+_ENTITY_MARK = re.compile(r"\(주\)|㈜|\(유\)|\(재\)|\(사\)|주식회사|유한회사")
 
 
 def number_tokens(text: str) -> list[str]:
@@ -411,8 +435,8 @@ def number_tokens(text: str) -> list[str]:
 
 
 def unit_tokens(text: str) -> list[str]:
-    """텍스트에 실제로 나온 단위 어휘."""
-    remaining = text or ""
+    """텍스트에 실제로 나온 단위 어휘. 법인격 표기는 세지 않는다."""
+    remaining = _ENTITY_MARK.sub(" ", text or "")
     found: list[str] = []
 
     for word in UNIT_WORDS:
@@ -473,6 +497,13 @@ ACCOUNT_LABELS = {
     "operating_cash_flow": "영업활동현금흐름",
     "investing_cash_flow": "투자활동현금흐름",
     "financing_cash_flow": "재무활동현금흐름",
+    "trade_receivable": "매출채권",
+    "other_receivable": "미수금",
+    "short_term_borrowings": "단기차입금",
+    "long_term_borrowings": "장기차입금",
+    "bond_with_warrant": "신주인수권부사채",
+    "common_capital": "보통주자본금",
+    "preferred_capital": "우선주자본금",
 }
 
 STATEMENT_LABELS = {
@@ -587,6 +618,25 @@ def nts_field(
         nts_source(as_of),
         context={"b_no": bizr_no, "verified": _text(nts.get("verified"))},
     )
+
+
+def disclosure_view(report: dict[str, Any]) -> dict[str, Any]:
+    """감사보고서 -> 공시 목록 항목 모양.
+
+    disclosure_item 은 list.json 항목을 받는데 수집 단계가 제출인을 flr_nm 이 아니라
+    auditor 로 옮겨 담았으므로 이름을 되돌려 준다 - 감사인이 누구였는지가 감사보고서
+    근거의 핵심 정보다.
+
+    infer 안에 두었던 것을 여기로 올렸다. investigate 도 같은 변환이 필요한데 그쪽이
+    infer 를 import 하면 infer -> detect -> investigate -> infer 순환이 된다. 애초에
+    disclosure_item 의 입력 모양을 맞추는 일이라 이 파일의 몫이다.
+    """
+    return {
+        "rcept_no": report["rcept_no"],
+        "rcept_dt": report.get("rcept_dt"),
+        "report_nm": report.get("report_nm"),
+        "flr_nm": report.get("auditor"),
+    }
 
 
 def disclosure_item(corp_code: str, item: dict[str, Any]) -> Evidence:
@@ -811,6 +861,46 @@ def section_paragraph(
             "block_index": block_index,
         },
         report_source(report),
+    )
+
+
+# ---- [5-3b] 뉴스 -----------------------------------------------------------
+def _join(head: str, body: str) -> str:
+    """제목 줄과 본문을 잇는다. 본문이 없으면 제목 줄만."""
+    return head + chr(10) + body if body else head
+
+
+def news_item(corp_code: str, article: dict[str, Any]) -> Evidence:
+    """기사 한 건.
+
+    raw_content 는 **기사에서 뽑은 텍스트**다. 뉴스 워크플로가 만든 summaries 는 LLM 이
+    쓴 것이라 근거로 삼으면 LLM 출력을 근거라고 부르는 셈이 된다 - 이 시스템이 막으려는
+    바로 그것이다.
+
+    앵커는 URL 해시다. URL 자체는 길고 ':' 와 '/' 가 섞여 ID 문법에 들어가지 못하는데,
+    기사의 동일성은 URL 이 정한다. section_paragraph 가 쓰는 방식과 같다.
+    """
+    url = _text(article.get("url"))
+    digest = hashlib.sha1(url.encode("utf-8")).hexdigest()[:10]
+
+    head = " | ".join(
+        part
+        for part in (
+            _text(article.get("title")) or "제목 없음",
+            _text(article.get("site")),
+            _text(article.get("published_on")),
+        )
+        if part
+    )
+    body = _text(article.get("content"))
+
+    return _evidence(
+        make_id(NS_NEWS, corp_code, f"h{digest}"),
+        "news",
+        _text(article.get("title")) or "기사",
+        _join(head, body),
+        {"kind": NS_NEWS, "corp_code": corp_code, "url": url},
+        news_source(article),
     )
 
 

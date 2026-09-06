@@ -3,7 +3,7 @@
 판정 규칙의 골격은 rules.py 에, 근거 조각은 evidence.py 에 있다. 이 파일은 수집 결과를
 읽어 그 둘을 엮는다. 수집·정리 계층(api/ · parser/ · pipeline)은 읽기만 한다.
 
-    [1] 문맥        _Context - 항목마다 다시 계산하지 않으려고 한 번만 만든다
+    [1] 문맥        rules.Context - 항목마다 다시 계산하지 않으려고 한 번만 만든다
     [2] 게이트      G-1 ~ G-4
     [3] 법적 실체    A-1 ~ A-4 (A-4 는 교차검증)
     [4] 재무 시계열  3개년 병합 규칙
@@ -24,7 +24,7 @@ from typing import Any, TypedDict
 
 from app.domain.company.parser import notes as nt
 from app.domain.company.parser import statements as st
-from app.domain.report import evidence, rules
+from app.domain.report import detect, evidence, rules
 from app.domain.report.rules import ItemDefinition, Verdict
 
 # 3개년을 보여준다. 보고서 3건에서 당기·전기가 나오므로 실제로는 4개년이 모이는데,
@@ -46,25 +46,22 @@ COMPANY_FIELDS = CORE_COMPANY_FIELDS + ("jurir_no", "bizr_no", "induty_code", "a
 EMPLOYEE_CODE = "TOT_EMPL"
 REGISTRATION_CODE = "CRP_RGS_NO"
 
+# service 가 뉴스 워크플로 결과를 이 값으로 정규화해 넘긴다. NewsState 22개 키를 그대로
+# 받지 않는 이유는 판정이 워크플로 자료구조에 묶이면 안 되기 때문이다.
+NEWS_ERROR = "error"
+
 
 # ---------------------------------------------------------------------------
 # [1] 문맥
 # ---------------------------------------------------------------------------
-class _Context(TypedDict):
-    collected: dict[str, Any]
-    company: dict[str, Any]
-    corp_code: str
-    as_of: str
-    gate: rules.GateState
-    notes: rules.NoteContext
-    series: dict[str, dict[int, dict[str, Any]]]
-    store: evidence.EvidenceStore
+# rules.Context 는 rules.Context 로 옮겼다. detect·investigate 가 같은 문맥을 읽어야 하는데
+# 그쪽이 infer 를 import 하면 순환이 되기 때문이다. GateState·NoteContext 와 한자리다.
 
 
 # ---------------------------------------------------------------------------
 # [2] 게이트
 # ---------------------------------------------------------------------------
-def _g1(item: ItemDefinition, context: _Context) -> rules.Finding:
+def _g1(item: ItemDefinition, context: rules.Context) -> rules.Finding:
     """DART 등록. 여기서 실패하면 보고서 전체가 설 자리가 없다."""
     company = context["company"]
     source = evidence.company_source(context["as_of"])
@@ -85,22 +82,7 @@ def _g1(item: ItemDefinition, context: _Context) -> rules.Finding:
     )
 
 
-def _disclosure_view(report: dict[str, Any]) -> dict[str, Any]:
-    """AuditReport -> 공시 목록 항목 모양.
-
-    evidence.disclosure_item 은 list.json 항목을 받는다. 수집 단계가 제출인을
-    flr_nm 이 아니라 auditor 로 옮겨 담았으므로 여기서 이름을 되돌려 준다 -
-    감사인이 누구였는지가 감사보고서 근거의 핵심 정보다.
-    """
-    return {
-        "rcept_no": report["rcept_no"],
-        "rcept_dt": report.get("rcept_dt"),
-        "report_nm": report.get("report_nm"),
-        "flr_nm": report.get("auditor"),
-    }
-
-
-def _g2(item: ItemDefinition, context: _Context) -> rules.Finding:
+def _g2(item: ItemDefinition, context: rules.Context) -> rules.Finding:
     """외부감사 대상 여부.
 
     감사보고서가 0건인 것은 파싱 실패가 아니라 확인 결과다. 비외감 법인이면 애초에
@@ -114,7 +96,7 @@ def _g2(item: ItemDefinition, context: _Context) -> rules.Finding:
         return rules.finding(item, Verdict.ABSENT, value=None)
 
     pieces = [
-        store.add(evidence.disclosure_item(corp_code, _disclosure_view(report)))
+        store.add(evidence.disclosure_item(corp_code, evidence.disclosure_view(report)))
         for report in gate["reports"]
     ]
     years = [r.get("fiscal_year") or "?" for r in gate["reports"]]
@@ -124,11 +106,11 @@ def _g2(item: ItemDefinition, context: _Context) -> rules.Finding:
         Verdict.CONFIRMED,
         value=f"외부감사 대상. 감사보고서 {len(pieces)}건 ({', '.join(years)})",
         evidence_ids=pieces,
-        source=evidence.disclosure_source(_disclosure_view(gate["reports"][0])),
+        source=evidence.disclosure_source(evidence.disclosure_view(gate["reports"][0])),
     )
 
 
-def _g3(item: ItemDefinition, context: _Context) -> rules.Finding:
+def _g3(item: ItemDefinition, context: rules.Context) -> rules.Finding:
     """감사보고서 미제출신고. 감사보고서가 0건일 때만 물어본다."""
     gate = context["gate"]
 
@@ -153,7 +135,7 @@ def _g3(item: ItemDefinition, context: _Context) -> rules.Finding:
     )
 
 
-def _g4(item: ItemDefinition, context: _Context) -> rules.Finding:
+def _g4(item: ItemDefinition, context: rules.Context) -> rules.Finding:
     """재무제표 첨부 형식.
 
     IFRS 채택사와 의견거절 문서는 FINANCE 표가 아예 없는 것이 정상이다. 이 판정이
@@ -187,7 +169,7 @@ def _g4(item: ItemDefinition, context: _Context) -> rules.Finding:
 # ---------------------------------------------------------------------------
 # [3] 법적 실체
 # ---------------------------------------------------------------------------
-def _a1(item: ItemDefinition, context: _Context) -> rules.Finding:
+def _a1(item: ItemDefinition, context: rules.Context) -> rules.Finding:
     """법인 기본정보."""
     company = context["company"]
     source = evidence.company_source(context["as_of"])
@@ -221,7 +203,7 @@ def _a1(item: ItemDefinition, context: _Context) -> rules.Finding:
     )
 
 
-def _a2(item: ItemDefinition, context: _Context) -> rules.Finding:
+def _a2(item: ItemDefinition, context: rules.Context) -> rules.Finding:
     """사업자등록 상태.
 
     진위확인 불일치(valid != '01')를 폐업으로 적으면 안 된다. 그건 국세청이 우리가 준
@@ -254,21 +236,28 @@ def _a2(item: ItemDefinition, context: _Context) -> rules.Finding:
         for field in fields
     ]
 
-    if not nts.get("verified"):
+    status = nts.get("status")
+
+    # 상태조회(/status)가 주 출처다. 진위확인 불일치는 상태를 못 받았다는 뜻이 아니라
+    # 대표자·개업일로 사업자를 특정하지 못했다는 별개의 사실이므로, 판정을 막지 않고
+    # 경고로만 남긴다. (국세청이 대조하는 것은 개업일자인데 우리가 주는 것은 DART
+    # 설립일이라 정상 기업도 자주 어긋난다 - 실측으로 확인했다.)
+    if not status:
         return rules.finding(
             item,
             Verdict.SOURCE_UNAVAILABLE,
             evidence_ids=pieces,
             source=source,
-            warnings=[
-                (
-                    "국세청 진위확인이 일치하지 않아 사업자 상태를 확인하지 못했다. "
-                    "폐업이 아니라 대조 실패다."
-                )
-            ],
+            warnings=["국세청 상태조회에서 사업자상태를 받지 못했다"],
         )
 
-    status = nts.get("status") or "확인 불가"
+    warnings: list[str] = []
+    if not nts.get("verified"):
+        warnings.append(
+            "국세청 진위확인(대표자·개업일 대조)은 일치하지 않는다. "
+            "사업자 상태와는 별개이며 폐업을 뜻하지 않는다."
+        )
+
     closed = nts.get("closed_at")
 
     return rules.finding(
@@ -277,10 +266,11 @@ def _a2(item: ItemDefinition, context: _Context) -> rules.Finding:
         value=f"{status} (폐업일 {_dashed(closed)})" if closed else status,
         evidence_ids=pieces,
         source=source,
+        warnings=warnings,
     )
 
 
-def _a3(item: ItemDefinition, context: _Context) -> rules.Finding:
+def _a3(item: ItemDefinition, context: rules.Context) -> rules.Finding:
     """규모 지표. 감사보고서 표지 EXTRACTION 의 직원수."""
     latest = context["gate"]["latest"]
 
@@ -360,7 +350,7 @@ def _region_of(text: str) -> str | None:
 
 
 def _overview_conflict(
-    context: _Context,
+    context: rules.Context,
     field: str,
     label: str,
     dart_value: str,
@@ -404,7 +394,7 @@ def _overview_conflict(
     )
 
 
-def _check_registration(context: _Context) -> tuple[list[str], list[str]]:
+def _check_registration(context: rules.Context) -> tuple[list[str], list[str]]:
     """법인등록번호: 기업개황 ↔ 표지 EXTRACTION. 숫자만 남겨 완전일치."""
     latest = context["gate"]["latest"]
     if latest is None:
@@ -435,7 +425,7 @@ def _check_registration(context: _Context) -> tuple[list[str], list[str]]:
     return pieces, [f"법인등록번호가 다르다: 기업개황 {dart} / 감사보고서 {document}"]
 
 
-def _check_overview(context: _Context) -> tuple[list[str], list[str]]:
+def _check_overview(context: rules.Context) -> tuple[list[str], list[str]]:
     """설립일·소재지: 기업개황 ↔ 주석 「회사의 개요」 본문."""
     latest = context["gate"]["latest"]
     overview = (
@@ -506,7 +496,7 @@ def _address_phrase(text: str) -> str | None:
     return None
 
 
-def _check_largest_shareholder(context: _Context) -> tuple[list[str], list[str]]:
+def _check_largest_shareholder(context: rules.Context) -> tuple[list[str], list[str]]:
     """대표이사 ↔ 최대주주.
 
     불일치를 '시점 차이' 로 두면 안 된다. 대표이사와 최대주주는 애초에 다를 수 있어서
@@ -575,7 +565,7 @@ def _check_largest_shareholder(context: _Context) -> tuple[list[str], list[str]]
     ]
 
 
-def _a4(item: ItemDefinition, context: _Context) -> rules.Finding:
+def _a4(item: ItemDefinition, context: rules.Context) -> rules.Finding:
     """정보 일관성. 출처가 갈리면 원인을 단정하지 않고 둘 다 보여준다."""
     source = evidence.company_source(context["as_of"])
 
@@ -674,7 +664,7 @@ def _years(series: dict[str, dict[int, Any]], names: tuple[str, ...]) -> list[in
     return sorted(found, reverse=True)[:RECENT_YEARS]
 
 
-def _cite(context: _Context, names: tuple[str, ...], years: list[int]) -> list[str]:
+def _cite(context: rules.Context, names: tuple[str, ...], years: list[int]) -> list[str]:
     """표시한 연도의 값이 나온 계정 조각만 등록한다."""
     store = context["store"]
     series = context["series"]
@@ -720,7 +710,7 @@ def _won(value: float | None, raw: str) -> str:
 # ---------------------------------------------------------------------------
 def _financial_item(
     item: ItemDefinition,
-    context: _Context,
+    context: rules.Context,
     names: tuple[str, ...],
     statement: str,
     *,
@@ -759,7 +749,7 @@ def _financial_item(
 
 def _no_accounts(
     item: ItemDefinition,
-    context: _Context,
+    context: rules.Context,
     statement: str,
     source: evidence.Source,
 ) -> rules.Finding:
@@ -815,7 +805,7 @@ def _no_accounts(
 
 def _summary_fallback(
     item: ItemDefinition,
-    context: _Context,
+    context: rules.Context,
     names: tuple[str, ...],
     source: evidence.Source,
     statement: str,
@@ -852,7 +842,7 @@ def _summary_fallback(
     )
 
 
-def _statement_pieces(context: _Context, statement: str) -> list[str]:
+def _statement_pieces(context: rules.Context, statement: str) -> list[str]:
     """못 읽은 표 자체를 근거로 남긴다. 그래야 '못 읽었다' 를 보여줄 수 있다."""
     latest = context["gate"]["latest"]
     if latest is None:
@@ -865,26 +855,26 @@ def _statement_pieces(context: _Context, statement: str) -> list[str]:
     return [context["store"].add(evidence.statement_table(latest, statement, block))]
 
 
-def _b1(item: ItemDefinition, context: _Context) -> rules.Finding:
+def _b1(item: ItemDefinition, context: rules.Context) -> rules.Finding:
     return _financial_item(
         item, context, INCOME_ACCOUNTS, st.INCOME_STATEMENT, fallback=True
     )
 
 
-def _b2(item: ItemDefinition, context: _Context) -> rules.Finding:
+def _b2(item: ItemDefinition, context: rules.Context) -> rules.Finding:
     return _financial_item(
         item, context, BALANCE_ACCOUNTS, st.BALANCE_SHEET, fallback=True
     )
 
 
-def _b3(item: ItemDefinition, context: _Context) -> rules.Finding:
+def _b3(item: ItemDefinition, context: rules.Context) -> rules.Finding:
     """현금흐름은 폴백이 없다. 표지 EXTRACTION 에 현금흐름 항목이 아예 없다."""
     return _financial_item(
         item, context, CASHFLOW_ACCOUNTS, st.CASH_FLOW, fallback=False
     )
 
 
-def _b4(item: ItemDefinition, context: _Context) -> rules.Finding:
+def _b4(item: ItemDefinition, context: rules.Context) -> rules.Finding:
     """감사의견. 코드로 판정한다.
 
     본문에서 '적정' 같은 단어를 찾는 문자열 매칭을 쓰지 않는다. 보유 문서 5건 전부에서
@@ -918,7 +908,7 @@ def _b4(item: ItemDefinition, context: _Context) -> rules.Finding:
     )
 
 
-def _note_item(item: ItemDefinition, context: _Context, topic: str) -> rules.Finding:
+def _note_item(item: ItemDefinition, context: rules.Context, topic: str) -> rules.Finding:
     """주석 하위항목 하나로 판정하는 항목. B-5·B-6 이 함께 쓴다."""
     latest = context["gate"]["latest"]
     source = evidence.report_source(latest) if latest else None
@@ -945,11 +935,11 @@ def _note_item(item: ItemDefinition, context: _Context, topic: str) -> rules.Fin
     )
 
 
-def _b5(item: ItemDefinition, context: _Context) -> rules.Finding:
+def _b5(item: ItemDefinition, context: rules.Context) -> rules.Finding:
     return _note_item(item, context, "borrowings")
 
 
-def _b6(item: ItemDefinition, context: _Context) -> rules.Finding:
+def _b6(item: ItemDefinition, context: rules.Context) -> rules.Finding:
     """계속기업 불확실성.
 
     설계 문서는 전용 EXTRACTION 코드를 찾지 못해 유보했지만, 감사보고서 74건 실측에서
@@ -964,7 +954,7 @@ def _b6(item: ItemDefinition, context: _Context) -> rules.Finding:
 # ---------------------------------------------------------------------------
 # 주석 하위항목 하나로 끝나는 항목은 _note_item 한 줄이면 된다. 4갈래 분기는
 # rules.note_verdict() 가 이미 한다.
-def _shareholder_tables(context: _Context) -> list[tuple[dict, dict]]:
+def _shareholder_tables(context: rules.Context) -> list[tuple[dict, dict]]:
     """(하위항목, 주주표 블록) 목록.
 
     표 헤더에 '주주명' 이 있고 '피투자회사' 가 없는 표만 고른다. 배제 조건이 없으면
@@ -1016,7 +1006,7 @@ def _is_aggregate_holder(name: str) -> bool:
     )
 
 
-def _holders(context: _Context) -> list[dict[str, Any]]:
+def _holders(context: rules.Context) -> list[dict[str, Any]]:
     """주주를 지분율 내림차순으로. 합계·소계 행은 뺀다.
 
     한 사람이 보통주와 우선주를 따로 들고 있으면 행이 둘로 나뉘므로 이름으로 합산한다.
@@ -1056,7 +1046,7 @@ def _largest_holder(holders: list[dict[str, Any]]) -> dict[str, Any] | None:
     return next((h for h in holders if not h["is_aggregate"]), None)
 
 
-def _share_class_ratios(context: _Context) -> dict[str, float]:
+def _share_class_ratios(context: rules.Context) -> dict[str, float]:
     """주식 종류별 지분율 합. 종류 열이 없는 표에서는 빈 dict 다.
 
     실측: 주주표 32건 중 '주식의 종류' 열이 있는 표는 3건뿐이다. 나머지는 종류별
@@ -1079,7 +1069,7 @@ def _share_class_ratios(context: _Context) -> dict[str, float]:
     return totals
 
 
-def _c1(item: ItemDefinition, context: _Context) -> rules.Finding:
+def _c1(item: ItemDefinition, context: rules.Context) -> rules.Finding:
     """주주 구성·지분율.
 
     주주현황은 감사보고서 필수 기재사항이 아니다. 없는 것이 절반(35/67)이고 그건
@@ -1125,7 +1115,7 @@ def _c1(item: ItemDefinition, context: _Context) -> rules.Finding:
     )
 
 
-def _c2(item: ItemDefinition, context: _Context) -> rules.Finding:
+def _c2(item: ItemDefinition, context: rules.Context) -> rules.Finding:
     """자본금·발행주식. 주석 「자본금」 또는 재무상태표 자본금 계정."""
     found = _note_item(item, context, "capital")
     capital = context["series"].get("capital_stock") or {}
@@ -1149,7 +1139,7 @@ def _c2(item: ItemDefinition, context: _Context) -> rules.Finding:
     )
 
 
-def _c3(item: ItemDefinition, context: _Context) -> rules.Finding:
+def _c3(item: ItemDefinition, context: rules.Context) -> rules.Finding:
     """투자성 증권(전환사채·신주인수권부사채·전환우선주).
 
     실측 3/67 이다. ABSENT 가 정상 판정이고 그건 "발행하지 않았다" 는 뜻이다.
@@ -1157,7 +1147,7 @@ def _c3(item: ItemDefinition, context: _Context) -> rules.Finding:
     return _note_item(item, context, "convertible_bond")
 
 
-def _c4(item: ItemDefinition, context: _Context) -> rules.Finding:
+def _c4(item: ItemDefinition, context: rules.Context) -> rules.Finding:
     """투자 라운드·금액. 공시에 기재되지 않고 연동한 출처도 없다."""
     return rules.finding(
         item,
@@ -1166,7 +1156,7 @@ def _c4(item: ItemDefinition, context: _Context) -> rules.Finding:
     )
 
 
-def _d1(item: ItemDefinition, context: _Context) -> rules.Finding:
+def _d1(item: ItemDefinition, context: rules.Context) -> rules.Finding:
     """주요 사업 내용. 1차 소스는 뉴스가 아니라 공시 원문이다."""
     found = _note_item(item, context, "overview")
     induty = context["company"].get("induty_code")
@@ -1182,7 +1172,7 @@ def _d1(item: ItemDefinition, context: _Context) -> rules.Finding:
     return found
 
 
-def _d2(item: ItemDefinition, context: _Context) -> rules.Finding:
+def _d2(item: ItemDefinition, context: rules.Context) -> rules.Finding:
     """특허. KIPRIS 미연동.
 
     코드는 있으나 특허검색 응답의 키 이름이 실서버로 검증된 적이 없다. 같은 방식의
@@ -1201,7 +1191,7 @@ def _d2(item: ItemDefinition, context: _Context) -> rules.Finding:
     )
 
 
-def _d3(item: ItemDefinition, context: _Context) -> rules.Finding:
+def _d3(item: ItemDefinition, context: rules.Context) -> rules.Finding:
     """주요 매출처.
 
     비상장 외부감사 대상 법인의 법정 공시사항이 아니다. 확인 대상이 아니므로 ABSENT 가
@@ -1216,25 +1206,64 @@ def _d3(item: ItemDefinition, context: _Context) -> rules.Finding:
     )
 
 
-def _d4(item: ItemDefinition, context: _Context) -> rules.Finding:
-    """최근 동향(뉴스). 8번에서 연동한다.
+def _d4(item: ItemDefinition, context: rules.Context) -> rules.Finding:
+    """최근 동향(뉴스).
 
-    뉴스 워크플로는 async 이고 재정렬·품질판정·요약이 전부 LLM 호출이다. 판정 계층은
-    동기이고 LLM 이 없어야 하므로 여기서 부르지 않는다.
+    뉴스 워크플로는 async 라 이 계층에서 부를 수 없다. 대신 service 가 먼저 받아
+    collected["news"] 에 넣어 주고, 여기서는 _a2 가 collected["nts"] 를 읽는 것과 똑같이
+    동기로 판정만 한다. 판정은 infer 가, 서술은 compose 가 한다는 계층이 그대로 유지된다.
+
+    기사 0건은 ABSENT 다. 검색은 했고 결과가 없었다는 뜻이지 우리가 못 읽은 게 아니다.
     """
+    news = context["collected"].get("news")
+    source = evidence.news_source({})
+
+    if not news:
+        detail = context["collected"].get("news_error") or "뉴스를 조회하지 않았다"
+        return rules.finding(
+            item, Verdict.SOURCE_UNAVAILABLE, source=source, warnings=[detail]
+        )
+
+    if news.get("status") == NEWS_ERROR:
+        return rules.finding(
+            item,
+            Verdict.SOURCE_UNAVAILABLE,
+            source=source,
+            warnings=news.get("errors") or ["뉴스 검색이 실패했다"],
+        )
+
+    articles = news.get("articles") or []
+    if not articles:
+        return rules.finding(
+            item,
+            Verdict.ABSENT,
+            source=source,
+            warnings=["검색했으나 이 기업의 최근 기사를 찾지 못했다"],
+        )
+
+    store = context["store"]
+    pieces = [
+        store.add(evidence.news_item(context["corp_code"], article))
+        for article in articles
+    ]
+
     return rules.finding(
         item,
-        Verdict.SOURCE_UNAVAILABLE,
-        warnings=["뉴스는 LLM 서술 단계에서 연동한다"],
+        Verdict.CONFIRMED,
+        value=f"최근 기사 {len(pieces)}건",
+        evidence_ids=pieces,
+        source=source,
+        # 뉴스는 공시가 아니다. 이 경고가 화면의 '참고' 배지와 짝을 이룬다.
+        warnings=["뉴스는 공시가 아니다. 수치는 공시로 다시 확인해야 한다"],
     )
 
 
-def _e1(item: ItemDefinition, context: _Context) -> rules.Finding:
+def _e1(item: ItemDefinition, context: rules.Context) -> rules.Finding:
     """특수관계자 거래. 실측 66/67 로 거의 항상 있다."""
     return _note_item(item, context, "related_party")
 
 
-def _e2(item: ItemDefinition, context: _Context) -> rules.Finding:
+def _e2(item: ItemDefinition, context: rules.Context) -> rules.Finding:
     """우발채무·소송·보증.
 
     우발 주석을 먼저 보고, 없으면 소송 주석을 본다. 담보제공·지급보증도 우발 키워드에
@@ -1253,7 +1282,7 @@ def _e2(item: ItemDefinition, context: _Context) -> rules.Finding:
     return litigation if litigation["verdict"] == Verdict.CONFIRMED.value else found
 
 
-def _e3(item: ItemDefinition, context: _Context) -> rules.Finding:
+def _e3(item: ItemDefinition, context: rules.Context) -> rules.Finding:
     """공시 정정 이력.
 
     수집 결과가 F001 원본 목록을 돌려주지 않으므로 최신 3건의 corrected 플래그만 본다.
@@ -1271,13 +1300,13 @@ def _e3(item: ItemDefinition, context: _Context) -> rules.Finding:
         return rules.finding(
             item,
             Verdict.ABSENT,
-            source=evidence.disclosure_source(_disclosure_view(gate["reports"][0])),
+            source=evidence.disclosure_source(evidence.disclosure_view(gate["reports"][0])),
             warnings=limit,
         )
 
     store = context["store"]
     pieces = [
-        store.add(evidence.disclosure_item(context["corp_code"], _disclosure_view(r)))
+        store.add(evidence.disclosure_item(context["corp_code"], evidence.disclosure_view(r)))
         for r in corrected
     ]
 
@@ -1286,7 +1315,7 @@ def _e3(item: ItemDefinition, context: _Context) -> rules.Finding:
         Verdict.CONFIRMED,
         value=f"정정 공시 {len(corrected)}건",
         evidence_ids=pieces,
-        source=evidence.disclosure_source(_disclosure_view(corrected[0])),
+        source=evidence.disclosure_source(evidence.disclosure_view(corrected[0])),
         warnings=limit,
     )
 
@@ -1314,7 +1343,7 @@ def _pair(series: dict[str, dict[int, Any]], name: str) -> tuple[Any, Any] | Non
     }
 
 
-def _derive(context: _Context) -> list[str]:
+def _derive(context: rules.Context) -> list[str]:
     """F-3 ~ F-6. B 입력만으로 닫히는 파생만 만든다.
 
     F-1(우선주 비중)·F-2(최대주주 지분율)는 주주표가 있어야 하므로 여기 없다.
@@ -1387,7 +1416,7 @@ def _derive(context: _Context) -> list[str]:
     return pieces
 
 
-def _shareholder_derived(context: _Context) -> list[str]:
+def _shareholder_derived(context: rules.Context) -> list[str]:
     """F-1 우선주 비중 · F-2 최대주주. 주주표가 있어야 돌아간다.
 
     scope 는 rcept_no 다 - 두 계산 모두 한 보고서 안에서 닫힌다.
@@ -1445,7 +1474,7 @@ def _shareholder_derived(context: _Context) -> list[str]:
     return made
 
 
-def _debt_ratio(context: _Context, cite: Callable[[dict], str]) -> list[str]:
+def _debt_ratio(context: rules.Context, cite: Callable[[dict], str]) -> list[str]:
     series = context["series"]
     years = _years(series, ("total_liabilities", "total_equity"))
     made: list[str] = []
@@ -1475,7 +1504,7 @@ def _debt_ratio(context: _Context, cite: Callable[[dict], str]) -> list[str]:
     return made
 
 
-def _conversions(context: _Context, cite: Callable[[dict], str]) -> list[str]:
+def _conversions(context: rules.Context, cite: Callable[[dict], str]) -> list[str]:
     """최신 연도 금액의 억원 환산. 항목마다 하나씩."""
     series = context["series"]
     made: list[str] = []
@@ -1511,7 +1540,7 @@ def _conversions(context: _Context, cite: Callable[[dict], str]) -> list[str]:
 # ---------------------------------------------------------------------------
 # [8] 진입점
 # ---------------------------------------------------------------------------
-_RULES: dict[str, Callable[[ItemDefinition, _Context], rules.Finding]] = {
+_RULES: dict[str, Callable[[ItemDefinition, rules.Context], rules.Finding]] = {
     "G-1": _g1,
     "G-2": _g2,
     "G-3": _g3,
@@ -1545,6 +1574,9 @@ class InferResult(TypedDict):
     derived: list[str]
     evidence: list[evidence.Evidence]
     gate: rules.GateState
+    signals: list[Any]        # detect.Signal. 자료형은 signals.py 가 소유한다
+    investigations: list[Any]  # detect 가 실행한 조사 큐
+    coverage: dict[str, Any]   # 무엇을 평가할 수 있었는가
 
 
 def run(collected: dict[str, Any], *, as_of: str) -> InferResult:
@@ -1554,7 +1586,7 @@ def run(collected: dict[str, Any], *, as_of: str) -> InferResult:
     인자로 받아 그대로 넘긴다 - 그래야 같은 입력이 항상 같은 조각을 만든다.
     """
     gate = rules.gate_state(collected)
-    context: _Context = {
+    context: rules.Context = {
         "collected": collected,
         "company": collected.get("company") or {},
         "corp_code": collected["corp_code"],
@@ -1570,9 +1602,21 @@ def run(collected: dict[str, Any], *, as_of: str) -> InferResult:
         for item_id, rule in _RULES.items()
     }
 
+    # 파생이 먼저 끝나야 한다. 승격 신호(손익 전환·매출과 현금흐름의 괴리)가 F-3·F-4
+    # 조각을 찾아 인용하고, 부채 급증이 F-5 부채비율을 붙이기 때문이다.
+    derived = _derive(context)
+
+    # 이상징후 탐지와 후속 조사. context 를 그대로 넘긴다 - series·notes·gate·store 가
+    # 이미 다 만들어져 있으므로 재수집 없이 끝난다. store 를 공유하므로 조사가 등록한
+    # 근거 조각도 아래 dump() 에 함께 담긴다.
+    detected = detect.run(context, findings, derived)
+
     return {
         "findings": findings,
-        "derived": _derive(context),
+        "derived": derived,
         "evidence": context["store"].dump(),
         "gate": gate,
+        "signals": detected["signals"],
+        "investigations": detected["tasks"],
+        "coverage": detected["coverage"],
     }

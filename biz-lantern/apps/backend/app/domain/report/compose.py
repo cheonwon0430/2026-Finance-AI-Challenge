@@ -11,6 +11,7 @@ LLM 호출 자체는 app/ai/news/llm_client.py 를 그대로 쓴다.
     [5] 응답 읽기  parse_sentences
     [6] 후검증     네 단계와 1회 재생성
     [7] 진입점     narrate_item · run
+    [8] 절 서술    항목 팩을 절로 합쳐 이어지는 문단을 만든다. 보고서 본문이다
 
 서술을 두 층으로 쌓는 이유
 
@@ -42,6 +43,7 @@ LLM 호출 자체는 app/ai/news/llm_client.py 를 그대로 쓴다.
 import asyncio
 import json
 import logging
+import re
 from dataclasses import dataclass
 from typing import Any, TypedDict
 
@@ -50,6 +52,7 @@ import httpx
 from app.ai.news import llm_client
 from app.ai.news.llm_client import LLMError
 from app.domain.report import evidence, infer, rules
+from app.domain.report import signals as sg
 from app.domain.report.rules import Verdict
 
 logger = logging.getLogger(__name__)
@@ -74,6 +77,8 @@ STATUS_PARTIAL = "partial"  # 일부 문장을 폐기했거나 재생성 호출�
 STATUS_ERROR = "error"      # 1차 호출부터 실패했다
 
 MAX_SENTENCES = 4
+MAX_PARAGRAPHS = 5           # 절 하나가 가져갈 수 있는 문단 수
+MAX_SECTION_SENTENCES = 16   # 절 하나의 문장 총량
 MAX_SENTENCE_CHARS = 200
 PACK_CHARS = 1200        # 조각 하나를 프롬프트에 넣을 때의 상한
 PACK_TOTAL_CHARS = 12_000
@@ -85,6 +90,19 @@ TRUNCATION_MARK = "…(원문이 길어 이후 생략됨)"
 # 환산 단위. value·warnings 경로로는 절대 들여보내지 않는다 - 환산값이 F 파생 근거에만
 # 있다는 규칙(evidence.py)을 미래의 infer 변경에도 견디게 하는 뺄셈이다.
 CONVERSION_UNITS = frozenset({"억원", "조원"})
+
+# 뉴스만 근거로 든 문장은 금액·비율을 쓸 수 없다.
+#
+# 기사에 적힌 추정 매출은 근거 원문에 실제로 있으므로 숫자 대조를 그냥 통과한다. 그러면
+# 언론의 추정치가 공시 수치인 것처럼 보고서에 오른다 - **"근거에 있다" 와 "믿을 만하다"
+# 는 다르다.** 프롬프트로만 막으면 모델이 흘린 숫자가 그대로 새므로 여기서 끊는다.
+#
+# 항목 id 가 아니라 근거 유형에 건다. compose 가 D-4 라는 항목의 의미를 알게 되면
+# 판정 계층의 지식이 서술 계층으로 새기 시작한다.
+NEWS_TYPE = "news"
+NEWS_BARRED_UNITS = frozenset(
+    {"원", "천원", "천만원", "백만원", "억원", "조원", "달러", "%"}
+)
 
 REASON_UNKNOWN_ID = "존재하지 않는 근거 ID"
 REASON_FOREIGN_ID = "다른 항목의 근거 ID"
@@ -123,6 +141,42 @@ class ItemNarrative(TypedDict):
     llm_error: str | None
 
 
+# 보고서 본문의 절. gate 블록(G-1~G-4)은 우리가 판정할 자격이 있는지 확인한 내부
+# 절차라 본문에 넣지 않고, A-1~A-3 은 값 자체가 결론이라 머리말에 나열한다. 둘 다
+# 사라지지 않고 화면의 '확인 범위와 한계' 로 간다 - 숨기는 것과 자리를 옮기는 것은 다르다.
+HEADER_ITEMS = frozenset({"A-1", "A-2", "A-3"})
+
+# 이상징후 절. rules.SECTION_* 이 아닌 이유는 이것이 항목(Finding)의 절이 아니라
+# 신호(Signal)의 절이기 때문이다. 두 개념을 섞지 않는다는 원칙이 여기까지 온다.
+SECTION_SIGNAL = "signal"
+SIGNAL_SECTION_TITLE = "이상징후와 추가 조사"
+
+SECTION_TITLES = {
+    rules.SECTION_ENTITY: "공시 정보의 일관성",
+    rules.SECTION_FINANCE: "재무",
+    rules.SECTION_CAPITAL: "자본 구조",
+    rules.SECTION_BUSINESS: "사업과 최근 동향",
+    rules.SECTION_RISK: "리스크",
+}
+
+
+class Paragraph(TypedDict):
+    sentences: list[Sentence]
+
+
+class SectionNarrative(TypedDict):
+    """보고서 본문 한 절. 항목 나열이 아니라 이어지는 문단이다."""
+
+    section: str
+    title: str
+    item_ids: list[str]        # 이 절이 딛고 선 항목들
+    paragraphs: list[Paragraph]
+    dropped: list[Dropped]
+    pack_ids: list[str]
+    llm_status: str
+    llm_error: str | None
+
+
 class ComposeError(TypedDict):
     item_id: str | None  # None 이면 항목이 아니라 compose 전체의 실패다
     message: str
@@ -130,6 +184,7 @@ class ComposeError(TypedDict):
 
 class ComposeResult(TypedDict):
     items: dict[str, ItemNarrative]
+    sections: list[SectionNarrative]  # 본문. items 는 부록과 근거 추적에 남는다
     errors: list[ComposeError]
     orphan_derived: list[str]  # 어느 항목에도 붙지 못한 파생 조각
 
@@ -160,6 +215,7 @@ class _Pack:
     pieces: tuple[evidence.Evidence, ...]
     baseline_numbers: frozenset[str]
     baseline_units: frozenset[str]
+    dates: frozenset[str]  # 기준일 표기. 숫자 대조 전에 문장에서 지운다
 
     @property
     def ids(self) -> tuple[str, ...]:
@@ -183,6 +239,50 @@ def _year_of(as_of: str | None) -> str | None:
     head = (as_of or "")[:4]
 
     return head if head.isdigit() else None
+
+
+_ISO_DATE = re.compile(r"(\d{4})-(\d{2})-(\d{2})")
+
+
+def _date_variants(as_of: str | None) -> list[str]:
+    """기준일 하나가 문장에 나올 수 있는 표기들.
+
+    월·일을 허용 숫자로 풀지 않는 대신 이 방법을 쓴다. '2025-12-31 기준' 이라고 쓴
+    문장에서 12 와 31 은 지어낸 숫자가 아니라 기준일의 일부인데, 월·일을 통째로
+    허용집합에 넣으면 '12억원' 같은 것이 함께 새어 든다(그래서 8번에서 뺐다).
+    날짜를 **덩어리째 지운 뒤** 남은 숫자만 대조하면 둘 다 막힌다.
+    """
+    matched = _ISO_DATE.fullmatch((as_of or "").strip())
+    if matched is None:
+        return []
+
+    year, month, day = matched.groups()
+
+    return [
+        f"{year}-{month}-{day}",
+        f"{year}.{month}.{day}",
+        f"{year}년 {month}월 {day}일",
+        f"{year}년 {int(month)}월 {int(day)}일",
+    ]
+
+
+def _date_texts(
+    finding: rules.Finding, pieces: tuple[evidence.Evidence, ...]
+) -> frozenset[str]:
+    """이 항목이 인쇄한 기준일들의 표기 전부."""
+    sources = [finding["source"], *(piece["source"] for piece in pieces)]
+
+    return frozenset(
+        text for source in sources for text in _date_variants(source.get("as_of"))
+    )
+
+
+def _mask_dates(text: str, dates: frozenset[str]) -> str:
+    """문장에서 기준일 표기를 지운다. 긴 표기부터 지워야 짧은 것이 먼저 먹지 않는다."""
+    for date in sorted(dates, key=len, reverse=True):
+        text = text.replace(date, " ")
+
+    return text
 
 
 def _baselines(
@@ -213,6 +313,12 @@ def _baselines(
         year = _year_of(source.get("as_of"))
         if year:
             numbers.add(year)
+
+        # 출처 표기도 우리가 인쇄한 문자열이다. name 이 "감사보고서 (2025.12)" 라
+        # 팩의 [출처] 줄에도 화면 푸터에도 그대로 뜨는데, 기준선에 없으면 그걸 옮겨
+        # 적은 문장이 "근거에 없는 숫자: 2025.12" 로 죽는다(실서버 실측).
+        numbers |= set(evidence.number_tokens(source.get("name") or ""))
+        numbers |= set(evidence.number_tokens(source.get("rcept_no") or ""))
 
     return frozenset(numbers), frozenset(units - CONVERSION_UNITS)
 
@@ -267,7 +373,9 @@ def build_packs(inferred: infer.InferResult) -> tuple[dict[str, _Pack], list[str
         pieces = tuple(by_id[i] for i in cited if i in by_id)
         numbers, units = _baselines(found, pieces)
 
-        packs[item.item_id] = _Pack(item.item_id, found, pieces, numbers, units)
+        packs[item.item_id] = _Pack(
+            item.item_id, found, pieces, numbers, units, _date_texts(found, pieces)
+        )
 
     return packs, orphan
 
@@ -523,10 +631,14 @@ def build_instructions(company_name: str, finding: rules.Finding) -> str:
   쓸 수 있다.
 - 개수를 세지 않는다. '3개년'·'2건' 처럼 직접 센 숫자를 쓰지 않는다. 필요한 개수는
   이미 [요약] 에 있다.
-- 문장마다 딛고 선 조각의 ID 를 evidence_ids 에 빠짐없이 적는다. [근거] 목록에 없는
-  ID 를 쓰면 그 문장은 버려진다.
+- 문장마다 딛고 선 조각의 ID 를 evidence_ids 에 빠짐없이 적는다. 근거 ID 는 [근거]
+  목록에 'EV:' 로 시작해 적혀 있는 문자열이고, **한 글자도 바꾸지 말고 끝까지 그대로**
+  옮긴다. 줄여 쓰거나 뒷부분을 생략하면 그 문장은 버려진다.
+- 'B-1' 같은 항목 번호는 근거 ID 가 아니다. 항목 번호를 evidence_ids 에 넣지 마라.
 - [주의] 는 우리가 확인하지 못한 범위다. 이미 별도 문장으로 인쇄했으니 다시 쓰지 말고,
   그 뜻을 넓히거나 좁히지도 마라.
+- 뉴스 조각만 인용한 문장에는 금액·비율을 쓰지 않는다. 기사에 적힌 수치는 추정이지
+  공시 수치가 아니다. 뉴스로는 "무슨 일이 있었는가" 만 말한다.
 - 총평·전망·투자 판단·권유를 쓰지 않는다. 이 항목에 대한 사실만 쓴다.
 - URL 을 쓰지 않는다.
 
@@ -544,6 +656,9 @@ def build_repair_text(
         "[다시 쓸 문장]",
         "아래 문장은 근거를 벗어나 폐기됐다. 짚어 준 부분만 고쳐 다시 쓰라.",
         "고칠 수 없으면 그 내용을 빼고 남은 사실만으로 쓰라.",
+        # 실서버 실측 - 재생성 응답이 evidence_ids 를 비워 보내 통과했던 문장까지
+        # 다시 폐기됐다. 1차 지시에 있어도 여기서 한 번 더 말해야 한다.
+        "고쳐 쓴 문장에도 evidence_ids 를 반드시 다시 적는다. 비우면 그 문장은 버려진다.",
         "",
     ]
 
@@ -560,14 +675,21 @@ def build_repair_text(
 def parse_sentences(
     response: dict,
 ) -> tuple[list[Sentence], list[tuple[Any, list[str]]]]:
-    """응답 -> (초안, 형식 때문에 버린 것).
+    """항목 서술 응답 -> (초안, 형식 때문에 버린 것)."""
+    parsed = _payload(response)
+
+    raw = parsed.get("sentences") if isinstance(parsed, dict) else None
+    if not isinstance(raw, list):
+        raise LLMError(f"sentences 배열이 없음: {json.dumps(parsed)[:200]}")
+
+    return _read_sentences(raw)
+
+
+def _payload(response: dict) -> dict:
+    """LLM 원본 응답에서 구조화 출력 본문만 꺼낸다.
 
     거부·형식 오류를 조용히 빈 결과로 만들지 않는다. 빈 결과와 실패는 다른 사건이고,
     여기서 삼키면 "문장을 못 만들었다" 는 사실을 알 방법이 없다.
-
-    배열 안 개별 항목이 깨진 것은 예외가 아니라 그 항목만 버린다 - 한 문장의 형식
-    오류로 나머지 문장을 버릴 이유가 없다. 길이 초과 문장도 자르지 않고 버린다.
-    자른 문장은 근거를 벗어나기 쉽다.
     """
     choices = response.get("choices") or []
     if not choices:
@@ -586,14 +708,20 @@ def parse_sentences(
         raise LLMError("응답 본문이 비어 있음")
 
     try:
-        parsed = json.loads(content)
+        return json.loads(content)
     except ValueError as error:
         raise LLMError(f"JSON 파싱 실패: {error} / 본문: {content[:200]}") from error
 
-    raw = parsed.get("sentences") if isinstance(parsed, dict) else None
-    if not isinstance(raw, list):
-        raise LLMError(f"sentences 배열이 없음: {content[:200]}")
 
+def _read_sentences(
+    raw: list, *, limit: int = MAX_SENTENCES
+) -> tuple[list[Sentence], list[tuple[Any, list[str]]]]:
+    """문장 배열 하나를 읽는다. 항목 서술과 절 서술이 함께 쓴다.
+
+    배열 안 개별 항목이 깨진 것은 예외가 아니라 그 항목만 버린다 - 한 문장의 형식
+    오류로 나머지 문장을 버릴 이유가 없다. 길이 초과 문장도 자르지 않고 버린다.
+    자른 문장은 근거를 벗어나기 쉽다.
+    """
     drafts: list[Sentence] = []
     rejects: list[tuple[Any, list[str]]] = []
 
@@ -612,7 +740,7 @@ def parse_sentences(
             rejects.append((entry, [f"{REASON_TOO_LONG}: {len(text)}자"]))
             continue
 
-        if len(drafts) >= MAX_SENTENCES:
+        if len(drafts) >= limit:
             rejects.append((entry, [REASON_OVERFLOW]))
             continue
 
@@ -650,10 +778,16 @@ def allowed_units(pack: _Pack, cited: list[evidence.Evidence]) -> frozenset[str]
     기준선에서 환산 단위를 이미 뺐으므로 억원은 인용한 조각의 units 로만 들어온다.
     그 자리는 F-6 파생 조각뿐이다. 문서 원문에 조원이 인쇄돼 있으면 그 조각의 units
     에 있으므로 통과한다 - 원문 인용은 환산이 아니다.
+
+    근거가 전부 뉴스면 통화·비율을 뺀다. 기사와 공시를 함께 인용한 문장은 그대로 둔다 -
+    공시 근거가 있으면 그 숫자는 공시에서 온 것이다.
     """
     tokens = set(pack.baseline_units)
     for piece in cited:
         tokens |= set(piece["units"])
+
+    if cited and all(piece["type"] == NEWS_TYPE for piece in cited):
+        tokens -= NEWS_BARRED_UNITS
 
     return frozenset(tokens)
 
@@ -690,7 +824,7 @@ def verify(draft: Sentence, pack: _Pack, known_ids: frozenset[str]) -> list[str]
     numbers = allowed_numbers(pack, cited)
     reasons += [
         f"{REASON_NUMBER}: {token}"
-        for token in evidence.number_tokens(draft["text"])
+        for token in evidence.number_tokens(_mask_dates(draft["text"], pack.dates))
         if token not in numbers
     ]
 
@@ -883,6 +1017,28 @@ async def run(
         if narrative["llm_error"]
     ]
 
+    # 본문 절. 항목 서술이 끝난 뒤에 돈다 - 같은 팩을 다시 쓰므로 순서 의존은 없지만,
+    # 동시 호출 수를 두 배로 만들지 않으려고 나눠 던진다.
+    # 이상징후 절은 항목 절 뒤에 붙인다. "무엇을 확인했는가" 를 다 말한 뒤라야
+    # "그중 무엇이 이상했는가" 가 읽힌다. 신호가 없으면 절 자체가 생기지 않는다.
+    section_packs = build_section_packs(packs)
+    signal_pack = build_signal_pack(inferred)
+    if signal_pack is not None:
+        section_packs.append(signal_pack)
+
+    sections = await asyncio.gather(*(
+        narrate_section(
+            client, pack, known_ids, company_name=company_name, semaphore=semaphore
+        )
+        for pack in section_packs
+    ))
+
+    errors += [
+        {"item_id": section["section"], "message": section["llm_error"] or ""}
+        for section in sections
+        if section["llm_error"]
+    ]
+
     if orphan:
         logger.warning(
             "어느 항목에도 붙지 못한 파생 근거 %d건: %s", len(orphan), orphan
@@ -890,6 +1046,511 @@ async def run(
 
     return {
         "items": {narrative["item_id"]: narrative for narrative in narratives},
+        "sections": list(sections),
         "errors": errors,
         "orphan_derived": orphan,
     }
+
+
+# ---------------------------------------------------------------------------
+# [8] 절 서술 - 보고서 본문
+# ---------------------------------------------------------------------------
+# 항목별 서술만으로는 보고서가 되지 않는다. "매출액은 …이다. 영업이익은 …이다." 를
+# 스물다섯 번 늘어놓은 것은 판정 체크리스트지 사람이 읽는 글이 아니다. 이 계층은 같은
+# 근거를 절 단위로 다시 묶어, 관련된 사실을 이어 쓴 문단을 만든다.
+#
+# 후검증은 [6] 을 그대로 쓴다. verify() 가 pack.finding 을 보지 않고 근거·기준선만
+# 보므로 팩을 절 단위로 합쳐도 검사가 그대로 성립한다.
+#
+# 대신 팩 격리가 항목에서 절로 넓어진다. B-1 조각을 B-4 문장에 다는 것이 예전에는
+# 폐기 사유였는데 이제 둘 다 finance 절 안이라 통과한다. 이건 완화가 아니라 요구사항의
+# 결과다 - "적정 의견을 받았으나 3년 연속 영업손실이다" 는 두 항목의 근거를 동시에
+# 딛고 서는 문장이고, 그런 문장을 쓰라는 것이 이 계층의 존재 이유다. 숫자가 인용한
+# 조각의 원문에 실제로 있어야 한다는 더 강한 검사는 문장 단위로 그대로 남는다.
+@dataclass(frozen=True)
+class _SectionPack:
+    """절 하나에 허용된 근거. 항목 팩들의 합집합이다."""
+
+    section: str
+    title: str
+    findings: tuple[rules.Finding, ...]
+    pieces: tuple[evidence.Evidence, ...]
+    baseline_numbers: frozenset[str]
+    baseline_units: frozenset[str]
+    dates: frozenset[str]
+
+    @property
+    def item_ids(self) -> tuple[str, ...]:
+        return tuple(finding["item_id"] for finding in self.findings)
+
+    @property
+    def ids(self) -> tuple[str, ...]:
+        return tuple(piece["evidence_id"] for piece in self.pieces)
+
+    def piece(self, evidence_id: str) -> evidence.Evidence | None:
+        for item in self.pieces:
+            if item["evidence_id"] == evidence_id:
+                return item
+
+        return None
+
+
+def build_section_packs(packs: dict[str, _Pack]) -> list[_SectionPack]:
+    """항목 팩을 절로 묶는다.
+
+    CONFIRMED 항목만 넣는다. 비-CONFIRMED 는 줄 사실 자체가 없고([1] 물러서지 않는
+    지점 2), "확인하지 못했다" 는 판정 계층의 문장이라 본문이 아니라 부록으로 간다.
+
+    머리말로 가는 A-1~A-3 과 게이트 블록은 절을 만들지 않는다.
+    """
+    grouped: dict[str, list[_Pack]] = {}
+
+    for item in rules.ITEMS:
+        if item.section not in SECTION_TITLES or item.item_id in HEADER_ITEMS:
+            continue
+
+        pack = packs.get(item.item_id)
+        if pack is None or Verdict(pack.finding["verdict"]) is not Verdict.CONFIRMED:
+            continue
+
+        grouped.setdefault(item.section, []).append(pack)
+
+    sections: list[_SectionPack] = []
+
+    for section, title in SECTION_TITLES.items():
+        members = grouped.get(section) or []
+        if not members:
+            continue
+
+        # 조각은 항목 사이에 겹친다(같은 주주표를 C-1 과 A-4 가 함께 든다).
+        # dict 로 첫 등장 순서를 지키며 중복을 없앤다.
+        merged: dict[str, evidence.Evidence] = {}
+        for pack in members:
+            for piece in pack.pieces:
+                merged.setdefault(piece["evidence_id"], piece)
+
+        sections.append(
+            _SectionPack(
+                section=section,
+                title=title,
+                findings=tuple(pack.finding for pack in members),
+                pieces=tuple(merged.values()),
+                baseline_numbers=frozenset().union(
+                    *(pack.baseline_numbers for pack in members)
+                ),
+                baseline_units=frozenset().union(
+                    *(pack.baseline_units for pack in members)
+                ),
+                dates=frozenset().union(*(pack.dates for pack in members)),
+            )
+        )
+
+    return sections
+
+
+# 신호와 조사 결과를 절 근거팩에 담는 방법
+#
+#     _SectionPack.findings 는 build_section_pack_text 와 _rule_paragraphs 가 읽는데,
+#     그 둘이 실제로 쓰는 키는 item_id · label · value · warnings · evidence_ids ·
+#     source 뿐이다. 그래서 Signal 과 InvestigationTask 를 그 모양의 행으로 옮기면
+#     기존 직렬화·기준선·후검증이 **한 줄도 고치지 않고** 그대로 돈다.
+#
+#     verdict 는 넣지 않는다. 넣는 순간 "확인했는가" 와 "이상한가" 가 다시 섞인다.
+#     대신 이 절의 1층 정형문은 _signal_paragraphs 가 따로 만든다.
+def _signal_row(signal: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "item_id": signal["signal_id"],
+        "label": signal["label"],
+        "value": signal["trigger"],
+        "evidence_ids": list(signal["evidence_ids"]),
+        "source": signal["source"],
+        "warnings": list(signal["warnings"]),
+    }
+
+
+def _task_row(task: dict[str, Any], source: evidence.Source) -> dict[str, Any]:
+    """조사 결과 한 건. GAP 이면 result 가 '왜 없는지' 라 그것도 사실이다."""
+    mark = "" if task["status"] == sg.STATUS_RESOLVED else f"[{task['status']}] "
+
+    return {
+        "item_id": task["task_id"],
+        "label": task["label"],
+        "value": f"{mark}{task['result'] or '(결과 없음)'}",
+        "evidence_ids": list(task["evidence_ids"]),
+        "source": source,
+        "warnings": [],
+    }
+
+
+def build_signal_pack(
+    inferred: infer.InferResult,
+) -> _SectionPack | None:
+    """이상징후 + 조사 결과 -> 절 근거팩. 신호가 없으면 None(절을 만들지 않는다).
+
+    신호 행을 먼저, 조사 행을 뒤에 놓는다. 프롬프트의 '이 절이 확인한 것' 목록이 곧
+    "무엇이 이상했고 그래서 무엇을 봤는가" 의 순서가 된다.
+    """
+    signals = inferred.get("signals") or []
+    if not signals:
+        return None
+
+    by_id = {piece["evidence_id"]: piece for piece in inferred["evidence"]}
+    tasks = inferred.get("investigations") or []
+
+    source = signals[0]["source"]
+    rows = [_signal_row(signal) for signal in signals]
+    rows += [_task_row(task, source) for task in tasks]
+
+    merged: dict[str, evidence.Evidence] = {}
+    numbers: set[str] = set()
+    units: set[str] = set()
+    dates: set[str] = set()
+
+    for row in rows:
+        pieces = tuple(
+            by_id[i] for i in row["evidence_ids"] if i in by_id
+        )
+        for piece in pieces:
+            merged.setdefault(piece["evidence_id"], piece)
+
+        row_numbers, row_units = _baselines(row, pieces)
+        numbers |= row_numbers
+        units |= row_units
+        dates |= _date_texts(row, pieces)
+
+    return _SectionPack(
+        section=SECTION_SIGNAL,
+        title=SIGNAL_SECTION_TITLE,
+        findings=tuple(rows),
+        pieces=tuple(merged.values()),
+        baseline_numbers=frozenset(numbers),
+        baseline_units=frozenset(units),
+        dates=frozenset(dates),
+    )
+
+
+PARAGRAPH_SCHEMA_NAME = "report_section_paragraphs"
+
+PARAGRAPH_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "paragraphs": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "sentences": SENTENCE_SCHEMA["properties"]["sentences"],
+                },
+                "required": ["sentences"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    "required": ["paragraphs"],
+    "additionalProperties": False,
+}
+
+
+def build_section_pack_text(
+    pack: _SectionPack, *, limit: int = PACK_CHARS, total: int = PACK_TOTAL_CHARS
+) -> str:
+    """절 근거팩 직렬화. 항목별 요약을 먼저 주고 조각을 이어 붙인다."""
+    header = [f"[절] {pack.title}", "", "[이 절이 확인한 것]"]
+
+    for finding in pack.findings:
+        header.append(
+            f"- {finding['item_id']} {finding['label']}: "
+            f"{finding['value'] or '(값 없음)'}"
+        )
+
+    header += ["", "[근거]"]
+
+    used = sum(len(line) + 1 for line in header)
+    body: list[str] = []
+    skipped = 0
+
+    for piece in pack.pieces:
+        block = _piece_text(piece, limit=limit)
+        if used + len(block) + 1 > total:
+            skipped += 1
+            continue
+
+        body.append(block)
+        used += len(block) + 1
+
+    if not body:
+        body.append("- (없음)")
+
+    if skipped:
+        body.append(f"  (분량 때문에 조각 {skipped}건을 이 목록에서 제외했다)")
+
+    return "\n".join(header + body)
+
+
+SIGNAL_RULES = """
+- **발견한 사실과 그에 대한 해석을 반드시 구분해서 쓴다.** 수치의 변화와 조사에서
+  확인한 것은 사실이다(kind=confirmed). "그래서 이런 뜻이다" 는 해석이다
+  (kind=inferred). 해석도 근거를 인용해야 하는 것은 같다.
+- **조사하지 못한 것은 조사하지 못했다고 쓴다.** [GAP] 이 붙은 조사는 자료를 찾지
+  못한 것이다. 그것을 "없다" 나 "문제 없다" 로 바꿔 쓰지 마라. 무엇을 확인하려 했고
+  왜 확인하지 못했는지가 이 보고서의 가치다.
+- **원인을 단정하지 마라.** 조사가 어떤 후보를 배제했으면 배제했다고만 쓴다. 예를 들어
+  차입금이 그대로였다면 "차입금 때문은 아니다" 까지가 사실이고, "그렇다면 영업부채
+  때문이다" 는 근거 없는 단정이다.
+- 이상징후는 위험이 아니다. 등급·점수·심각도를 쓰지 마라. "추가 확인이 필요하다"
+  까지가 우리가 말할 수 있는 전부다.
+"""
+
+
+def build_section_instructions(company_name: str, pack: _SectionPack) -> str:
+    """절 서술 규칙.
+
+    항목 프롬프트와 숫자·단위 규칙은 같다. 다른 것은 하나뿐이다 - 항목을 차례로
+    나열하지 말고 관련된 사실을 이어서 쓰라는 것.
+
+    이상징후 절만 규칙 네 줄이 더 붙는다. 사실과 해석의 분리, GAP 을 부재로 바꿔
+    쓰지 않기, 원인 단정 금지, 등급 매기기 금지 - 전부 이 절에서만 생기는 위험이다.
+    """
+    extra = SIGNAL_RULES if pack.section == SECTION_SIGNAL else ""
+
+    return f"""
+'{company_name}' 의 비상장기업 분석 보고서에서 '{pack.title}' 절 본문을 쓴다.
+아래 [근거] 에 적힌 것만 가지고 문단 2~4개를 쓴다. 문단마다 2~5문장.
+
+- **항목을 차례로 나열하지 마라.** 'B-1 은 …, B-2 는 …' 처럼 쓰면 보고서가 아니라
+  체크리스트가 된다. 관련된 사실을 이어 하나의 흐름으로 쓰고, 같은 대상을 말하는
+  사실은 한 문단에 모은다.
+- 사실을 잇는 것과 지어내는 것은 다르다. '매출은 정체됐는데 영업손실이 이어졌다' 처럼
+  근거 여럿을 나란히 놓고 읽히는 대로 쓰는 것은 된다(kind=inferred). 근거에 없는
+  원인·전망·평가를 붙이는 것은 안 된다.
+- 숫자는 [근거] 나 [이 절이 확인한 것] 에 적힌 표기를 그대로 옮긴다. 반올림·자릿수
+  축약·단위 환산·직접 계산을 하지 않는다. '314.6억원' 을 '약 315억원' 으로 쓰면 그
+  문장은 버려진다.
+- [근거] 에 나오지 않는 단위를 쓰지 않는다. '억원' 은 파생(F-6) 조각을 인용할 때만
+  쓸 수 있다.
+- 개수를 세지 않는다. '3개년'·'2건' 처럼 직접 센 숫자를 쓰지 않는다.
+- 문장마다 딛고 선 조각의 ID 를 evidence_ids 에 빠짐없이 적는다. 근거 ID 는 [근거]
+  목록에 'EV:' 로 시작해 적혀 있는 문자열이고, **한 글자도 바꾸지 말고 끝까지 그대로**
+  옮긴다. 줄여 쓰거나 뒷부분을 생략하면 그 문장은 버려진다.
+- 'B-1' 같은 항목 번호는 근거 ID 가 아니다. 항목 번호를 evidence_ids 에 넣지 마라.
+- 뉴스 조각만 인용한 문장에는 금액·비율을 쓰지 않는다. 기사 수치는 추정이지 공시
+  수치가 아니다. 뉴스로는 "무슨 일이 있었는가" 만 말한다.
+- 우리가 확인하지 못한 것은 여기서 말하지 않는다. 보고서의 다른 자리가 맡는다.
+- 총평·전망·투자 판단·권유를 쓰지 않는다. URL 을 쓰지 않는다.
+{extra}
+kind 는 근거에 그대로 적혀 있으면 confirmed, 근거 여럿을 이어 읽은 해석이면 inferred 다.
+""".strip()
+
+
+def parse_paragraphs(
+    response: dict,
+) -> tuple[list[list[Sentence]], list[tuple[Any, list[str]]]]:
+    """절 서술 응답 -> (문단별 초안, 형식 때문에 버린 것).
+
+    빈 문단은 버린다 - 문단 구분은 화면의 문제이고, 빈 것을 내려보내면 화면이 그
+    처리 규칙을 또 만들어야 한다.
+    """
+    parsed = _payload(response)
+
+    raw = parsed.get("paragraphs") if isinstance(parsed, dict) else None
+    if not isinstance(raw, list):
+        raise LLMError(f"paragraphs 배열이 없음: {json.dumps(parsed)[:200]}")
+
+    paragraphs: list[list[Sentence]] = []
+    rejects: list[tuple[Any, list[str]]] = []
+
+    for entry in raw[:MAX_PARAGRAPHS]:
+        if not isinstance(entry, dict) or not isinstance(entry.get("sentences"), list):
+            rejects.append((entry, [REASON_MALFORMED]))
+            continue
+
+        drafts, bad = _read_sentences(
+            entry["sentences"], limit=MAX_SECTION_SENTENCES
+        )
+        rejects += bad
+
+        if drafts:
+            paragraphs.append(drafts)
+
+    return paragraphs, rejects
+
+
+async def _ask_paragraphs(
+    client: httpx.AsyncClient,
+    semaphore: asyncio.Semaphore,
+    instructions: str,
+    user_content: str,
+) -> tuple[list[list[Sentence]], list[tuple[Any, list[str]]]]:
+    async with semaphore:
+        response = await llm_client.complete_json(
+            client,
+            instructions,
+            user_content,
+            PARAGRAPH_SCHEMA,
+            PARAGRAPH_SCHEMA_NAME,
+            max_tokens=MAX_TOKENS * 2,
+        )
+
+    return parse_paragraphs(response)
+
+
+def _screen(
+    paragraphs: list[list[Sentence]],
+    pack: _SectionPack,
+    known_ids: frozenset[str],
+) -> tuple[list[list[Sentence]], list[tuple[Sentence, list[str]]], int]:
+    """문단을 문장 단위로 검사한다. (살아남은 문단, 폐기 대상, 생존 문장 수)."""
+    kept: list[list[Sentence]] = []
+    failed: list[tuple[Sentence, list[str]]] = []
+    total = 0
+
+    for drafts in paragraphs:
+        survivors: list[Sentence] = []
+
+        for draft in drafts:
+            reasons = verify(draft, pack, known_ids)
+            if reasons:
+                failed.append((draft, reasons))
+                continue
+
+            if total + len(survivors) >= MAX_SECTION_SENTENCES:
+                failed.append((draft, [REASON_OVERFLOW]))
+                continue
+
+            survivors.append(draft)
+
+        if survivors:
+            kept.append(survivors)
+            total += len(survivors)
+
+    return kept, failed, total
+
+
+def _signal_sentences(row: dict[str, Any]) -> list[Sentence]:
+    """신호·조사 행 하나 -> 정형문.
+
+    rule_sentences 를 쓰지 않는다. 그쪽은 verdict 에서 문장을 만드는데 신호에는
+    verdict 가 없다 - 있는 척하면 "확인했는가" 와 "이상한가" 가 다시 섞인다.
+
+    kind 는 confirmed 다. trigger 도 조사 결과도 우리가 근거에서 결정적으로 만든
+    문자열이고 해석이 아니다. 해석은 2층(LLM)이 얹는다.
+    """
+    sentences: list[Sentence] = [
+        {
+            "text": f"{row['label']}: {row['value']}",
+            "kind": KIND_CONFIRMED,
+            "evidence_ids": list(row["evidence_ids"]),
+            "origin": ORIGIN_RULE,
+        }
+    ]
+
+    sentences += [
+        {
+            "text": warning,
+            "kind": KIND_REFERENCE,
+            "evidence_ids": list(row["evidence_ids"]),
+            "origin": ORIGIN_RULE,
+        }
+        for warning in row["warnings"]
+    ]
+
+    return sentences
+
+
+def _rule_paragraphs(pack: _SectionPack) -> list[Paragraph]:
+    """LLM 이 없을 때의 본문. 항목별 정형문을 문단 하나씩으로 놓는다.
+
+    글로서는 밋밋하지만 사실은 전부 들어 있고 근거도 붙어 있다. '문단이 0개인 절' 이
+    생기지 않게 하는 것이 여기서도 규칙이다.
+    """
+    if pack.section == SECTION_SIGNAL:
+        return [{"sentences": _signal_sentences(row)} for row in pack.findings]
+
+    return [
+        {"sentences": rule_sentences(finding)} for finding in pack.findings
+    ]
+
+
+async def narrate_section(
+    client: httpx.AsyncClient | None,
+    pack: _SectionPack,
+    known_ids: frozenset[str],
+    *,
+    company_name: str,
+    semaphore: asyncio.Semaphore,
+) -> SectionNarrative:
+    """절 하나의 본문. narrate_item 과 같이 예외를 올리지 않는다.
+
+    재생성이 항목 서술과 다르다. 문장 하나만 고쳐 받으면 그것이 어느 문단에 속하는지
+    알 수 없어 문단 구조가 깨진다. 그래서 **절 전체를 한 번 다시 쓰게 하고, 더 많은
+    문장이 살아남은 쪽을 택한다.** 호출은 여전히 최대 2회다.
+    """
+    narrative: SectionNarrative = {
+        "section": pack.section,
+        "title": pack.title,
+        "item_ids": list(pack.item_ids),
+        "paragraphs": _rule_paragraphs(pack),
+        "dropped": [],
+        "pack_ids": list(pack.ids),
+        "llm_status": STATUS_SKIPPED,
+        "llm_error": None,
+    }
+
+    if client is None:
+        return narrative
+
+    instructions = build_section_instructions(company_name, pack)
+    pack_text = build_section_pack_text(pack)
+
+    try:
+        drafts, rejects = await _ask_paragraphs(
+            client, semaphore, instructions, pack_text
+        )
+    except LLMError as error:
+        narrative["llm_status"] = STATUS_ERROR
+        narrative["llm_error"] = str(error)
+        return narrative
+
+    narrative["dropped"] += [_dropped(e, r, attempt=1) for e, r in rejects]
+
+    kept, failed, total = _screen(drafts, pack, known_ids)
+    narrative["dropped"] += [_dropped(d, r, attempt=1) for d, r in failed]
+
+    if failed:
+        try:
+            retry, retry_rejects = await _ask_paragraphs(
+                client,
+                semaphore,
+                instructions,
+                build_repair_text(pack_text, failed),
+            )
+        except LLMError as error:
+            # 1차 통과분은 살린다. 재생성 실패가 검증된 문장을 지울 이유가 없다.
+            narrative["llm_error"] = str(error)
+            retry, retry_rejects = [], []
+
+        if retry:
+            retry_kept, retry_failed, retry_total = _screen(retry, pack, known_ids)
+
+            if retry_total > total:
+                # 2차가 더 많이 살아남았다. 1차 생존분은 통째로 버리고 갈아탄다 -
+                # 둘을 섞으면 같은 사실이 두 번 실린다.
+                narrative["dropped"] += [
+                    _dropped(e, r, attempt=2) for e, r in retry_rejects
+                ]
+                narrative["dropped"] += [
+                    _dropped(d, r, attempt=2) for d, r in retry_failed
+                ]
+                kept, total = retry_kept, retry_total
+
+    if kept:
+        narrative["paragraphs"] = [{"sentences": drafts} for drafts in kept]
+
+    if narrative["llm_status"] != STATUS_ERROR:
+        # 살아남은 문장이 하나도 없으면 정형문으로 되돌아간 것이다. 호출은 했으므로
+        # skipped 가 아니고, 얻은 것이 없으므로 ok 도 아니다.
+        narrative["llm_status"] = (
+            STATUS_OK if kept and not narrative["dropped"] else STATUS_PARTIAL
+        )
+
+    return narrative

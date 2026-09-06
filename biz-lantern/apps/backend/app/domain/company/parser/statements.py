@@ -106,6 +106,29 @@ FINANCING_CASH_FLOW = "163000000"
 NET_CASH_CHANGE = "164000000"
 CASH_END = "166000000"
 
+# 이상징후 탐지가 쓰는 계정 (2026-09-06 실측). 표준 ACODE 가 5개사에서 일치하는 것만
+# 넣는다 - 당근마켓 / (주)센트비 3개년 / (주)직방.
+#
+#     매출채권 111150000        당근·센트비·직방 일치
+#     미수금   111180000        3사 일치. 송금업은 채권이 여기 잡힌다(센트비 매출채권
+#                              46백만원 vs 미수금 984백만원)
+#     단기차입금 115130000      센트비·직방 일치
+#     장기차입금 116210000      센트비·직방 일치
+#     신주인수권부사채 116103000 직방에서만 확인(625억). 1개사라 라벨 경로와 병행한다
+#     보통주자본금 118110000    3사 일치
+#     우선주자본금 118120000    3사 일치
+#
+# 전환사채는 넣지 않았다. 5개사 어디에도 없어 ACODE 를 실측하지 못했고, 추측한 코드를
+# 넣으면 이 파일의 원칙("실측으로 확인한 것만")이 깨진다. 대신 find_accounts_by_label()
+# 로 라벨에서 찾는다.
+TRADE_RECEIVABLE = "111150000"
+OTHER_RECEIVABLE = "111180000"
+SHORT_TERM_BORROWINGS = "115130000"
+LONG_TERM_BORROWINGS = "116210000"
+BOND_WITH_WARRANT = "116103000"
+COMMON_CAPITAL = "118110000"
+PREFERRED_CAPITAL = "118120000"
+
 # 기초현금(165000000)은 뺐다. 실측에서 한 문서가 같은 코드에
 # '외화표시현금의환율변동효과' 를 달고 있어 의미가 하나로 고정되지 않는다.
 # 기말현금(166000000)은 12건 전부 일관되므로 남긴다.
@@ -122,7 +145,37 @@ REPORTED_ACCOUNTS: dict[str, tuple[str, str]] = {
     "operating_cash_flow": (CASH_FLOW, OPERATING_CASH_FLOW),
     "investing_cash_flow": (CASH_FLOW, INVESTING_CASH_FLOW),
     "financing_cash_flow": (CASH_FLOW, FINANCING_CASH_FLOW),
+    # 아래는 이상징후 탐지 전용이다. B-1~B-3 은 INCOME_ACCOUNTS·BALANCE_ACCOUNTS·
+    # CASHFLOW_ACCOUNTS 명시 튜플만 읽으므로 여기에 늘려도 보고서 표시가 바뀌지 않는다.
+    "trade_receivable": (BALANCE_SHEET, TRADE_RECEIVABLE),
+    "other_receivable": (BALANCE_SHEET, OTHER_RECEIVABLE),
+    "short_term_borrowings": (BALANCE_SHEET, SHORT_TERM_BORROWINGS),
+    "long_term_borrowings": (BALANCE_SHEET, LONG_TERM_BORROWINGS),
+    "bond_with_warrant": (BALANCE_SHEET, BOND_WITH_WARRANT),
+    "common_capital": (BALANCE_SHEET, COMMON_CAPITAL),
+    "preferred_capital": (BALANCE_SHEET, PREFERRED_CAPITAL),
 }
+
+# 보고서 본문(B-1~B-3)이 반드시 필요로 하는 계정. 정상적인 외감 감사보고서라면 열 개가
+# 전부 나와야 하고, 하나라도 빠지면 파서를 의심해야 한다.
+#
+# 나머지(탐지 전용)는 **없는 것이 정상**이다. 무차입 회사에 차입금 계정이 없고 CB 를
+# 발행한 적 없는 회사에 사채 계정이 없다 - 센트비는 장기차입금·신주인수권부사채가
+# 둘 다 없고 그게 맞다. 그래서 "전부 나와야 한다" 는 검사는 이 집합에만 건다.
+CORE_ACCOUNTS: frozenset[str] = frozenset(
+    {
+        "revenue",
+        "operating_income",
+        "net_income",
+        "total_assets",
+        "total_liabilities",
+        "total_equity",
+        "capital_stock",
+        "operating_cash_flow",
+        "investing_cash_flow",
+        "financing_cash_flow",
+    }
+)
 
 _LOSS_SUFFIX = "20000"  # ACODE 뒤 5자리. 손실 계정이라 값이 양수로 적혀 온다
 
@@ -304,6 +357,50 @@ def extract_financials(clean: dict[str, Any]) -> dict[str, dict[str, Any]]:
             "statement": kind,
             "periods": values,
         }
+
+    return found
+
+
+def find_accounts_by_label(
+    clean: dict[str, Any], statement: str, keywords: tuple[str, ...]
+) -> list[dict[str, Any]]:
+    """라벨로 계정을 찾는다. ACODE 를 실측하지 못한 계정을 위한 경로.
+
+    REPORTED_ACCOUNTS 는 ACODE 앞 9자리로만 찾는데, 그러려면 그 코드가 실제로 여러
+    회사에서 같은 뜻으로 쓰인다는 것을 먼저 확인해야 한다. 전환사채처럼 표본에 한 번도
+    나오지 않은 계정은 코드를 확인할 방법이 없고, 회사 고유 계정은 애초에
+    99999999999999(PLACEHOLDER)로 온다 - 실측으로 '장기매출채권'과 '장기미수수익'이
+    그렇게 왔다.
+
+    그런 계정만 여기서 라벨로 줍는다. 코드로 찾을 수 있는 것을 여기로 돌리지 않는다 -
+    라벨은 회사마다 표기가 갈려서 코드보다 언제나 약한 근거다.
+
+    반환은 extract_financials 와 같은 모양이라 series 에 그대로 얹을 수 있다.
+    level 0 만 고르지 않는다 - 이 경로로 찾는 계정은 대부분 하위 계정이다.
+    """
+    table = classify_statements(clean).get(statement)
+    if table is None:
+        return []
+
+    found: list[dict[str, Any]] = []
+
+    for account in table["accounts"]:
+        key = label_key(account["label"])
+        if not any(keyword in key for keyword in keywords):
+            continue
+
+        values = account_values(account)
+        if not values:
+            continue
+
+        found.append(
+            {
+                "label": account["label"],
+                "code": account["code"],
+                "statement": statement,
+                "periods": values,
+            }
+        )
 
     return found
 

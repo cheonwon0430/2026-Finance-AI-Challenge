@@ -78,8 +78,15 @@ class ReportResponse(BaseModel):
 
     findings: dict = Field(default_factory=dict)          # 항목 25개의 판정
     items: dict = Field(default_factory=dict)             # 항목 25개의 서술
+    sections: list[dict] = Field(default_factory=list)    # 보고서 본문 절
     evidence: list[dict] = Field(default_factory=list)    # 근거 조각 전량
     derived: list[str] = Field(default_factory=list)      # F 블록 파생 조각 ID
     errors: list[dict] = Field(default_factory=list)      # 서술 단계에서 터진 것
     orphan_derived: list[str] = Field(default_factory=list)
+
+    # 이상징후와 그에 딸린 조사. findings 와 같은 이유로 dict 인 채로 둔다 - Signal 도
+    # InvestigationTask 도 소유자가 signals.py 이고, 여기 옮겨 적으면 두 곳이 갈라진다.
+    signals: list[dict] = Field(default_factory=list)         # 발견한 이상징후
+    investigations: list[dict] = Field(default_factory=list)  # 중복을 없앤 조사 큐
+    coverage: dict = Field(default_factory=dict)              # 무엇을 평가할 수 있었는가
     steps: list[dict] = Field(default_factory=list)       # 수집 진행 기록

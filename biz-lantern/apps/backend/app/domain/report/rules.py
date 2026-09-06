@@ -8,6 +8,7 @@
     [3] 결과       Finding · finding() 팩토리
     [4] 게이트     gate_state()
     [5] 공통 분기  note_verdict()
+    [6] 판정 문맥  Context
 
 판정값 다섯을 왜 나누는가
 
@@ -277,3 +278,28 @@ def note_verdict(
         return Verdict.EXTRACTION_FAILED, None
 
     return Verdict.ABSENT, None
+
+
+# ---------------------------------------------------------------------------
+# [6] 판정 문맥
+# ---------------------------------------------------------------------------
+class Context(TypedDict):
+    """판정 한 번이 딛고 서는 자료 전부. infer.run() 이 시작할 때 한 번만 만든다.
+
+    infer 안에 두지 않고 여기 두는 이유: detect·investigate 도 같은 문맥을 읽는데,
+    그쪽이 infer 를 import 하면 infer -> detect -> infer 순환이 된다. GateState 와
+    NoteContext 가 이미 여기 있으므로 셋을 한자리에 모으는 것이 자연스럽다.
+
+    series 는 {논리계정: {회계연도: {raw, value, report, entry, name}}} 이고
+    build_series() 가 만든다. RECENT_YEARS 는 표시 한도일 뿐이라 실제로는 4개년이
+    들어 있다 - 이상징후 탐지는 그 4번째 해까지 본다.
+    """
+
+    collected: dict[str, Any]
+    company: dict[str, Any]
+    corp_code: str
+    as_of: str
+    gate: GateState
+    notes: NoteContext
+    series: dict[str, dict[int, dict[str, Any]]]
+    store: evidence.EvidenceStore
