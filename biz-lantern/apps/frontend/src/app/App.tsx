@@ -47,7 +47,7 @@ export default function App() {
           />
 
           <Route
-            path="/companies/:companyId/report"
+            path="/reports/:reportId"
             element={<ReportPage />}
           />
 

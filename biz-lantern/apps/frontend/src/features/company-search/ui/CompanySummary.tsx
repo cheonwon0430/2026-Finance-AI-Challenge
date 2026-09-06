@@ -8,6 +8,7 @@ import type { Company as LegacyCompany } from '../../company/model/company-data'
 
 import type { CompanyOverviewResponse } from '@/entities/company';
 import { Alert, AlertDescription, AlertTitle, Skeleton } from '@/shared/ui';
+import { ReportCreateButton } from '@/features/report';
 
 import { AuditReportCard, NtsStatusCard } from './AuditReportCard';
 import { CompanyInfoCard } from './CompanyInfoCard';
@@ -88,6 +89,10 @@ export function CompanySummary({
 
       {!isOverviewLoading && !isOverviewError && overview && (
         <div className="space-y-4">
+          <ReportCreateButton
+            corpCode={overview.pipeline.company.corp_code}
+          />
+
           <CompanyInfoCard company={overview.pipeline.company} />
 
           <div className="grid gap-4 md:grid-cols-2">

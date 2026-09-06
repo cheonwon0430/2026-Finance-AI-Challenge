@@ -291,15 +291,6 @@ export function CompanyDetailPage() {
         </div>
       </section>
 
-      {/* Report */}
-      <section className="mt-10">
-        <Link
-          to={`/companies/${company.id}/report`}
-          className="inline-flex rounded-md bg-primary px-5 py-3 text-primary-foreground"
-        >
-          기업분석 보고서 보기
-        </Link>
-      </section>
     </main>
   );
 }
