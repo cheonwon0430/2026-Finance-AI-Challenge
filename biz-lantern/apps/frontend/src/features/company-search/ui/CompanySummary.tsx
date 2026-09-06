@@ -34,6 +34,15 @@ export function CompanySummary({
 }: CompanySummaryProps) {
   const [isPatentDialogOpen, setIsPatentDialogOpen] = useState(false);
 
+  // 어느 감사보고서의 정리 문서를 펼쳐 볼지. null 이면 최신 1건(목록이 최신순이다).
+  const [selectedRceptNo, setSelectedRceptNo] = useState<string | null>(null);
+
+  const auditReports = overview?.pipeline.audit_reports ?? [];
+  const selectedReport =
+    auditReports.find((report) => report.rcept_no === selectedRceptNo) ??
+    auditReports[0] ??
+    null;
+
   return (
     <section className="space-y-4">
       {company && (
@@ -96,9 +105,13 @@ export function CompanySummary({
           <CompanyInfoCard company={overview.pipeline.company} />
 
           <div className="grid gap-4 md:grid-cols-2">
-            <AuditReportCard auditReport={overview.pipeline.audit_report} />
+            <AuditReportCard
+              auditReports={auditReports}
+              selectedRceptNo={selectedReport?.rcept_no ?? null}
+              onSelect={setSelectedRceptNo}
+            />
             <NtsStatusCard
-              ntsOperating={overview.pipeline.nts_operating}
+              nts={overview.pipeline.nts}
               ntsError={overview.pipeline.nts_error}
             />
           </div>
@@ -117,12 +130,15 @@ export function CompanySummary({
             items={overview.patents.items}
           />
 
-          {overview.pipeline.document && (
+          {selectedReport && (
             <div>
               <h2 className="font-semibold">감사보고서 정리 문서</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {selectedReport.report_nm} · 위 목록에서 다른 연도를 고를 수 있습니다.
+              </p>
               <div className="markdown-body mt-2">
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                  {overview.pipeline.document}
+                  {selectedReport.document}
                 </ReactMarkdown>
               </div>
             </div>

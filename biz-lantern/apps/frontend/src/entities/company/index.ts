@@ -10,6 +10,6 @@ export {
   type AuditReport,
   type Pipeline,
   type PipelineStep,
-  type NtsOperatingStatus,
+  type NtsStatus,
 } from './api';
 export { formatDate, corpClsLabel } from './lib/format';

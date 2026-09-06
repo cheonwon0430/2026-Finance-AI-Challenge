@@ -69,17 +69,24 @@ export interface Patent {
   administrative_history: AdministrativeHistory | null;
 }
 
-/** DART 감사보고서(F001) 목록 중 선택된 최신 1건. */
+/**
+ * DART 감사보고서(F001) 한 건. 목록 메타와 정리된 본문을 함께 들고 있다.
+ *
+ * 백엔드가 3개년을 수집하면서 목록 메타(corp_name·flr_nm·rm)를 그대로 넘기던 구조에서
+ * 필요한 것만 추린 구조로 바뀌었다. 제출인은 회계법인이라 auditor 로 이름이 바뀌었다.
+ */
 export interface AuditReport {
-  corp_code: string;
-  corp_name: string;
-  stock_code: string;
-  corp_cls: string;
-  report_nm: string;
   rcept_no: string;
-  flr_nm: string;
   rcept_dt: string;
-  rm: string;
+  report_nm: string;
+  /** 제출인. 감사보고서의 제출인은 회계법인이다 */
+  auditor: string | null;
+  /** report_nm 의 (2025.12) 를 회계연도 종료일로 편 값 */
+  fiscal_year: string | null;
+  /** [기재정정] 으로 다시 제출된 건 */
+  corrected: boolean;
+  /** 정리된 마크다운 본문 */
+  document: string;
 }
 
 export interface PipelineStep {
@@ -91,26 +98,39 @@ export interface PipelineStep {
 }
 
 /**
- * 국세청 사업자상태 조회 결과.
- * 현재 백엔드에서 실제로 확인된 케이스는 timeout 으로 인한 null 뿐이라
- * 정상 응답의 필드 구조는 아직 알 수 없다. 임의로 필드를 지어내지 않도록
- * 느슨한 레코드 타입으로 둔다.
+ * 국세청 사업자 조회 결과(pipeline.nts).
+ *
+ * verified 와 operating 은 다른 사실이다. verified 는 사업자번호·상호·개업일이 서로
+ * 맞는지(진위확인)이고, operating 은 지금 영업 중인지(휴폐업)다. 진위확인이 틀려도
+ * 폐업이 아닐 수 있어서 화면에서 둘을 섞으면 안 된다.
  */
-export type NtsOperatingStatus = Record<string, unknown>;
+export interface NtsStatus {
+  verified: boolean;
+  valid_code: string | null;
+  operating: boolean | null;
+  status_code: string | null;
+  /** 예: "계속사업자" */
+  status: string | null;
+  /** 예: "부가가치세 일반과세자" */
+  tax_type: string | null;
+  closed_at: string | null;
+}
 
 /**
  * GET /companies/{companyName} 의 응답 중 pipeline 필드.
  *
- * document 는 pipeline.paths.document_clean_md 가 가리키는 감사보고서
- * 정리본 마크다운의 실제 내용이며, 감사보고서가 없으면 null 이다.
+ * 정리된 본문은 pipeline 이 아니라 audit_reports[].document 에 건별로 들어 있다.
  */
 export interface Pipeline {
   corp_code: string;
   company: Company;
-  nts_operating: NtsOperatingStatus | null;
+  /** 확인하지 못했으면 null. 사유는 nts_error 에 있다 */
+  nts: NtsStatus | null;
   nts_error: string | null;
-  audit_report: AuditReport | null;
-  document: string | null;
+  /** 최신순 3개년. 비어 있으면 외감 대상이 아니다 */
+  audit_reports: AuditReport[];
+  /** DART F005 미제출신고. 감사보고서가 0건일 때만 조회한다 */
+  non_submission: unknown[] | null;
   steps: PipelineStep[];
 }
 
