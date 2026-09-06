@@ -1,0 +1,12 @@
+.venv/
+data/
+data copy/
+data_experiment/
+tests/
+http/
+__pycache__/
+**/__pycache__/
+.pytest_cache/
+.ruff_cache/
+.env
+*.copy

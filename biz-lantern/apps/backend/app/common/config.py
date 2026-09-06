@@ -15,11 +15,21 @@ class Settings(BaseSettings):
     openai_api_key: str | None = None
     openai_model: str | None = None      # 예: openai/gpt-5.6-luna
 
+    # 브라우저가 API 를 부를 수 있는 출처. 쉼표로 여러 개를 넣는다.
+    # 배포에서 이 값이 안 맞으면 화면은 뜨는데 API 만 전부 막힌다 - 원인을 찾기 어려운
+    # 실패라 기본값(로컬 Vite)을 남기고 서버에서는 .env 로 덮는다.
+    cors_origins: str = "http://localhost:5173"
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
     )
+
+    @property
+    def cors_origin_list(self) -> list[str]:
+        """CORS_ORIGINS 를 리스트로. 공백과 빈 항목은 버린다."""
+        return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
 
 
 settings = Settings() # pyright: ignore[reportCallIssue]

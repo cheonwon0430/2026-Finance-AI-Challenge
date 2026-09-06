@@ -3,6 +3,8 @@ __pycache__/
 
 .env
 *.env*
+# 템플릿은 예외. 이게 없으면 팀원이 채워야 할 키 목록을 git 에서 못 받는다
+!*.env.example
 dump/
 
 biz-lantern/document/작업내용 정리.md
