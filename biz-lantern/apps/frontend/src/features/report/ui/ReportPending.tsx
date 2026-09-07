@@ -51,11 +51,11 @@ export function ReportPending({ createdAt }: ReportPendingProps) {
         <LoaderCircle className="mt-0.5 size-5 shrink-0 animate-spin text-muted-foreground" />
 
         <div>
-          <p className="font-medium">보고서를 만들고 있다</p>
+          <p className="font-medium">보고서를 만들고 있습니다</p>
 
           <p className="mt-1 text-sm text-muted-foreground">
-            DART 감사보고서 3개년과 뉴스를 수집해 25개 항목을 판정한다. 수십
-            초에서 몇 분이 걸리며, 완료되면 이 화면이 자동으로 바뀐다.
+            DART 감사보고서 3개년과 뉴스를 수집해 25개 항목을 판정합니다. 수십
+            초에서 몇 분이 걸릴 수 있으며, 완료되면 이 화면이 자동으로 바뀝니다.
           </p>
 
           {seconds !== null && (

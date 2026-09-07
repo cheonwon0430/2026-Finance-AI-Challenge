@@ -171,7 +171,7 @@ export function NtsStatusCard({ nts, ntsError }: NtsStatusCardProps) {
             <HelpCircle />
             <AlertTitle>국세청 조회 결과를 확인할 수 없습니다</AlertTitle>
             <AlertDescription>
-              <p>사업자 상태를 조회하지 못했습니다. 정상, 휴업, 폐업 등은 추정할 수 없습니다.</p>
+              <p>사업자 상태를 조회하지 못했습니다. 국세청 서버 상태 혹은 사업자 번호 조회 오류 등의 이유로 사업자 상태를 조회하지 못할 수 있습니다. 하단 오류코드를 참고해 주시기 바랍니다.</p>
 
               {ntsError && (
                 <p className="mt-1 flex items-center gap-1 text-xs opacity-80">

@@ -1,0 +1,12 @@
+# 프론트엔드 빌드 컨텍스트가 이 디렉터리다. docker 는 컨텍스트 루트의 .dockerignore 만 읽는다.
+node_modules
+**/node_modules
+**/dist
+**/.env
+**/__pycache__
+apps/backend/.venv
+apps/backend/data
+apps/backend/data_experiment
+document
+docs
+*.log

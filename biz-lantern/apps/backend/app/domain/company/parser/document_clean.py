@@ -137,6 +137,58 @@ def _collapse_letter_spacing(text: str) -> str:
     return text
 
 
+# DART 원문은 논리적으로 다른 줄을 한 <P> 에 몰아넣는 경우가 있다. 파서가 합치는 것이
+# 아니라 원문이 그렇게 생겼다 (업스테이지 20260413000172: <P> 186개 중 19개).
+#
+#     '...설정되어 있습니다.6. 지분법적용투자주식(1) 당기말과...같습니다.① 당기말'
+#
+# 같은 문서 안에서 '② 전기말' 은 독립 <P> 로 나온다. 제출사 편집기의 비일관성이라
+# 구조로는 구분할 수 없고 문자열 안의 단서로만 되돌릴 수 있다.
+#
+# 규칙의 불변식은 하나다 - 번호마커 앞에 공백이 아예 없을 때만 끊는다. 이미 띄어져
+# 있는 곳은 손대지 않으므로 멀쩡한 문서에는 영향이 없다.
+#
+#     (?<=[가-힣)）.])   앞이 글자·닫는괄호·마침표일 때만. 문장이나 제목이 끝났다는 신호다
+#     (?<![0-9]\.)       '2.5. 대손충당금' 의 5 를 5번 항목으로 읽지 않는다
+#                        (notes.py 의 _header_pattern 이 막는 것과 같은 함정이다)
+_MARKER = r"(?:[①-⑳]|\(\d{1,2}\)|\d{1,2}[.)](?=\s*[^\s\d]))"
+_RUNON = re.compile(rf"(?<=[가-힣)）.])(?<![0-9]\.)(?={_MARKER})")
+
+
+def _inside_paren(text: str, pos: int) -> bool:
+    """pos 가 닫히지 않은 '(' 안이면 True.
+
+    '(주1)' 과 '(수준3)' 을 지키려고 둔다. 괄호 안의 숫자는 항목 번호가 아니라
+    주석 기호다. 코퍼스 14건에서 오탐은 이 둘뿐이었다.
+    """
+    depth = 0
+    for char in reversed(text[max(0, pos - 40) : pos]):
+        if char == ")":
+            depth += 1
+        elif char == "(":
+            if depth == 0:
+                return True
+            depth -= 1
+
+    return False
+
+
+def _split_runon(text: str) -> str:
+    """[C] 원문이 빠뜨린 문단 경계를 되살린다. 번호마커 앞에서만 끊는다."""
+    cuts = [m.start() for m in _RUNON.finditer(text) if not _inside_paren(text, m.start())]
+    if not cuts:
+        return text
+
+    pieces = []
+    start = 0
+    for cut in cuts:
+        pieces.append(text[start:cut])
+        start = cut
+    pieces.append(text[start:])
+
+    return "\n\n".join(pieces)
+
+
 def normalize_parse_key(text: str) -> str:
     """룰베이스 매칭 전용 key. whitespace 를 전부 제거한다.
 
@@ -523,7 +575,8 @@ def _normalize_node(node, field: str | None = None):
         if field in _KEEP_VERBATIM:
             return node
         if field in _BODY_TEXT:
-            return _squeeze(node)
+            # _squeeze 가 개행을 지우므로 문단 복원은 반드시 그 뒤여야 한다
+            return _split_runon(_squeeze(node))
         return _collapse_letter_spacing(_squeeze(node))
     return node
 
